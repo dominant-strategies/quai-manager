@@ -1,10 +1,11 @@
 package main
 
 import (
+	"context"
 	"fmt"
 	"log"
 
-	"github.com/ethereum/go-ethereum/ethclient"
+	"github.com/spruce-solutions/go-quai/ethclient"
 	"github.com/spruce-solutions/quai-manager/manager/util"
 )
 
@@ -23,5 +24,10 @@ func main() {
 		return
 	}
 
-	fmt.Println(client)
+	header, err := client.HeaderByNumber(context.Background(), nil)
+	if err != nil {
+		log.Fatal(err)
+	}
+
+	fmt.Println(header.Number)
 }
