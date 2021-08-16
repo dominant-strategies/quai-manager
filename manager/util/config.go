@@ -7,8 +7,9 @@ import (
 )
 
 type Config struct {
-	Regions []string
-	Zones   []string
+	MiningSliceUrls []string
+	Regions         []string
+	Zones           []string
 }
 
 // LoadConfig reads configuration from file or environment variables.
