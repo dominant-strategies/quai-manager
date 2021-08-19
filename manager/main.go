@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"log"
+	"math/big"
 	"sync"
 	"time"
 
@@ -16,25 +17,33 @@ import (
 	"github.com/spruce-solutions/quai-manager/manager/util"
 )
 
-type portMap struct {
-}
+const (
+	// resultQueueSize is the size of channel listening to sealing result.
+	resultQueueSize = 10
 
-type latest struct {
-	LatestPrime  common.Hash `json:"latestprime"`
-	LatestRegion common.Hash `json:"latestregion"`
-	LatestZone   common.Hash `json:"latestzone"`
-}
+	ContextDepth = 1
+)
+
+var exit = make(chan bool)
 
 type Manager struct {
 	config *params.ChainConfig // Chain configurations for signing
 
-	ClientSlice []*ethclient.Client
+	clientSlice      []*ethclient.Client
+	availableClients []bool
+	combinedHeader   *types.Header
+	pendingBlocks    []*types.Block // Current pending blocks of the manager
+	lock             []sync.RWMutex
+	conns            []*wsConn // Currently live websocket connections
 
-	headers []*types.Header // Current head headers of the manager
-	lock    []sync.RWMutex
-	conns   []*wsConn // Currently live websocket connections
+	pendingPrimeBlockCh  chan *types.Block
+	pendingRegionBlockCh chan *types.Block
+	pendingZoneBlockCh   chan *types.Block
 
-	MiningAddr []common.Address
+	resultCh chan *types.Block
+	startCh  chan struct{}
+	exitCh   chan struct{}
+
 	BlockCache [][]*lru.Cache // Cache for the most recent entire blocks
 }
 
@@ -45,110 +54,170 @@ type wsConn struct {
 	wlock sync.Mutex
 }
 
-var ContextDepth = 2
-var exit = make(chan bool)
-
 func main() {
 	config, err := util.LoadConfig("..")
 	if err != nil {
 		log.Fatal("cannot load config:", err)
 	}
 
-	clientPrime, err := ethclient.Dial(config.MiningSliceUrls[0])
-	clientRegion, err := ethclient.Dial(config.MiningSliceUrls[1])
-	clientZone, err := ethclient.Dial(config.MiningSliceUrls[2])
+	clientSlice := make([]*ethclient.Client, 3)
+	available := make([]bool, 3)
 
-	clientSlice := []*ethclient.Client{clientPrime, clientRegion, clientZone}
-	m := &Manager{
-		ClientSlice: clientSlice,
-		headers:     make([]*types.Header, 3),
-	}
-
-	m.fetchLatestHeads()
-
-	// Loop on receiving blocks
-	go m.subscribeHead(0)
-	go m.subscribeHead(1)
-	// go m.loop(2)
-	<-exit
-
-	// Loop on mining blocks
-}
-
-func (m *Manager) fetchLatestHeads() {
-	for i := 0; i < ContextDepth; i++ {
-		header, err := m.ClientSlice[i].HeaderByNumber(context.Background(), nil)
+	if config.PrimeMiningNode != "" {
+		clientSlice[0], err = ethclient.Dial(config.PrimeMiningNode)
 		if err != nil {
-			log.Fatal("Intitial header not found: ", err)
+			fmt.Println("Error connecting to Prime mining node")
+		} else {
+			available[0] = true
 		}
-		m.headers[i] = header
-		fmt.Println("Found header at index", i, "with hash", header.Hash())
 	}
+
+	if config.RegionMiningNode != "" {
+		clientSlice[1], err = ethclient.Dial(config.RegionMiningNode)
+		if err != nil {
+			fmt.Println("Error connecting to Region mining node")
+		} else {
+			available[1] = true
+		}
+	}
+
+	if config.ZoneMiningNode != "" {
+		clientSlice[2], err = ethclient.Dial(config.ZoneMiningNode)
+		if err != nil {
+			fmt.Println("Error connecting to Prime mining node")
+		} else {
+			available[2] = true
+		}
+	}
+
+	header := &types.Header{
+		ParentHash:  make([]common.Hash, 3),
+		Number:      make([]*big.Int, 3),
+		Extra:       make([][]byte, 3),
+		Time:        uint64(0),
+		BaseFee:     make([]*big.Int, 3),
+		GasLimit:    make([]uint64, 3),
+		Coinbase:    make([]common.Address, 3),
+		Difficulty:  make([]*big.Int, 3),
+		Root:        make([]common.Hash, 3),
+		TxHash:      make([]common.Hash, 3),
+		ReceiptHash: make([]common.Hash, 3),
+		GasUsed:     make([]uint64, 3),
+		Bloom:       make([]types.Bloom, 3),
+	}
+
+	m := &Manager{
+		clientSlice:          clientSlice,
+		availableClients:     available,
+		combinedHeader:       header,
+		pendingBlocks:        make([]*types.Block, 3),
+		pendingPrimeBlockCh:  make(chan *types.Block, resultQueueSize),
+		pendingRegionBlockCh: make(chan *types.Block, resultQueueSize),
+		pendingZoneBlockCh:   make(chan *types.Block, resultQueueSize),
+		resultCh:             make(chan *types.Block, resultQueueSize),
+		exitCh:               make(chan struct{}),
+		startCh:              make(chan struct{}, 1),
+		lock:                 make([]sync.RWMutex, 3),
+	}
+
+	for i := 0; i < len(m.availableClients); i++ {
+		if m.availableClients[i] {
+			go m.subscribePendingHeader(i)
+		}
+	}
+
+	go m.resultLoop()
+
+	go m.loopGlobalBlock()
+
+	for i := 0; i < len(m.availableClients); i++ {
+		if m.availableClients[i] {
+			m.fetchPendingBlocks(i)
+		}
+	}
+	<-exit
 }
 
-// loop keeps waiting for interesting events and pushes them out to connected
-// websockets.
-func (m *Manager) subscribeHead(sliceIndex int) {
+func (m *Manager) subscribePendingHeader(sliceIndex int) {
 	// Wait for chain events and push them to clients
-	heads := make(chan *types.Header, 16)
-	sub, err := m.ClientSlice[sliceIndex].SubscribeNewHead(context.Background(), heads)
-	fmt.Println("Subscribed to latest head")
+	header := make(chan *types.Header)
+	sub, err := m.clientSlice[sliceIndex].SubscribePendingBlock(context.Background(), header)
+	fmt.Println("Subscribed to pending blocks")
 	if err != nil {
-		log.Fatal("Failed to subscribe to head events", err)
+		log.Fatal("Failed to subscribe to pending block events", err)
 	}
 	defer sub.Unsubscribe()
 
-	// Start a goroutine to update the state from head notifications in the background
-	update := make(chan *types.Header)
-
-	go func() {
-		for head := range update {
-			// New chain head arrived, query the block and stream to clients
-			timestamp := time.Unix(int64(head.Time), 0)
-			if time.Since(timestamp) > time.Hour {
-				fmt.Println("Skipping manager refresh, head too old", "number", head.Number, "hash", head.Hash(), "age", common.PrettyAge(timestamp))
-				continue
-			}
-
-			block, err := m.ClientSlice[sliceIndex].BlockByNumber(context.Background(), head.Number[sliceIndex])
-			if err != nil {
-				log.Fatal("Failed to retrieve block from node", "err", err)
-			}
-
-			// Manager state retrieved, update locally and send to clients
-			m.lock[sliceIndex].RLock()
-
-			m.headers[sliceIndex] = head
-			fmt.Println("Updated manager state", "number", head.Number, "hash", head.Hash(), "age", common.PrettyAge(timestamp))
-
-			// Add block to cache
-
-			for _, conn := range m.conns {
-				if err := send(conn, map[string]interface{}{
-					"block": block,
-				}, time.Second); err != nil {
-					fmt.Println("Failed to send block to client", "err", err)
-					conn.conn.Close()
-					continue
-				}
-				if err := send(conn, head, time.Second); err != nil {
-					fmt.Println("Failed to send header to client", "err", err)
-					conn.conn.Close()
-				}
-			}
-			m.lock[sliceIndex].RUnlock()
+	// Wait for various events and assing to the appropriate background threads
+	for {
+		select {
+		case h := <-header:
+			// New head arrived, send if for state update if there's none running
+			fmt.Println("New pending block", "number", h.Number)
+			m.fetchPendingBlocks(sliceIndex)
 		}
-	}()
+	}
 }
 
-// sends transmits a data packet to the remote end of the websocket, but also
-// setting a write deadline to prevent waiting forever on the node.
-func send(conn *wsConn, value interface{}, timeout time.Duration) error {
-	if timeout == 0 {
-		timeout = 60 * time.Second
+func (m *Manager) fetchPendingBlocks(sliceIndex int) {
+	block, err := m.clientSlice[sliceIndex].GetPendingBlock(context.Background())
+	if err != nil {
+		log.Fatal("Pending block not found: ", err)
 	}
-	conn.wlock.Lock()
-	defer conn.wlock.Unlock()
-	conn.conn.SetWriteDeadline(time.Now().Add(timeout))
-	return conn.conn.WriteJSON(value)
+	switch sliceIndex {
+	case 0:
+		m.pendingPrimeBlockCh <- block
+	case 1:
+		m.pendingRegionBlockCh <- block
+	case 2:
+		m.pendingZoneBlockCh <- block
+	}
+}
+
+func (m *Manager) updateCombinedHeader(header *types.Header, i int) {
+	m.combinedHeader.ParentHash[i] = header.ParentHash[i]
+	m.combinedHeader.Number[i] = header.Number[i]
+	m.combinedHeader.Extra[i] = header.Extra[i]
+	m.combinedHeader.BaseFee[i] = header.BaseFee[i]
+	m.combinedHeader.GasLimit[i] = header.GasLimit[i]
+	m.combinedHeader.GasUsed[i] = header.GasUsed[i]
+	m.combinedHeader.TxHash[i] = header.TxHash[i]
+	m.combinedHeader.ReceiptHash[i] = header.ReceiptHash[i]
+	m.combinedHeader.Root[i] = header.Root[i]
+	m.combinedHeader.Difficulty[i] = header.Difficulty[i]
+	m.combinedHeader.Coinbase[i] = header.Coinbase[i]
+	m.combinedHeader.Bloom[i] = header.Bloom[i]
+}
+
+func (m *Manager) loopGlobalBlock() error {
+	for {
+		select {
+		case block := <-m.pendingZoneBlockCh:
+			time.Sleep(3 * time.Second)
+			header := block.Header()
+			m.updateCombinedHeader(header, 2)
+			m.pendingBlocks[2] = block
+			header.Nonce, header.MixDigest = types.BlockNonce{}, []common.Hash{common.Hash{}, common.Hash{}, common.Hash{}}
+			select {
+			case m.resultCh <- block.WithSeal(header):
+			default:
+				fmt.Println("Sealing result is not read by miner", "mode", "fake", "sealhash")
+			}
+		}
+	}
+}
+
+func (m *Manager) resultLoop() error {
+	for {
+		select {
+		case block := <-m.resultCh:
+			fmt.Println("Sending Mined Block", block.Header().Number)
+			// Check proper difficulty for which nodes to send block to
+			for i := 0; i < len(m.availableClients); i++ {
+				if m.availableClients[i] {
+					m.clientSlice[i].SendMinedBlock(context.Background(), block, true, true)
+				}
+			}
+		}
+	}
 }
