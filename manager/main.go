@@ -40,9 +40,10 @@ type Manager struct {
 	pendingRegionBlockCh chan *types.Block
 	pendingZoneBlockCh   chan *types.Block
 
-	resultCh chan *types.Block
-	startCh  chan struct{}
-	exitCh   chan struct{}
+	updatedCh chan *types.Header
+	resultCh  chan *types.Block
+	startCh   chan struct{}
+	exitCh    chan struct{}
 
 	BlockCache [][]*lru.Cache // Cache for the most recent entire blocks
 }
@@ -115,6 +116,7 @@ func main() {
 		pendingRegionBlockCh: make(chan *types.Block, resultQueueSize),
 		pendingZoneBlockCh:   make(chan *types.Block, resultQueueSize),
 		resultCh:             make(chan *types.Block, resultQueueSize),
+		updatedCh:            make(chan *types.Header, resultQueueSize),
 		exitCh:               make(chan struct{}),
 		startCh:              make(chan struct{}, 1),
 		lock:                 make([]sync.RWMutex, 3),
@@ -142,7 +144,7 @@ func (m *Manager) subscribePendingHeader(sliceIndex int) {
 	// Wait for chain events and push them to clients
 	header := make(chan *types.Header)
 	sub, err := m.clientSlice[sliceIndex].SubscribePendingBlock(context.Background(), header)
-	fmt.Println("Subscribed to pending blocks")
+	fmt.Println("Subscribed to pending block headers")
 	if err != nil {
 		log.Fatal("Failed to subscribe to pending block events", err)
 	}
@@ -153,7 +155,7 @@ func (m *Manager) subscribePendingHeader(sliceIndex int) {
 		select {
 		case h := <-header:
 			// New head arrived, send if for state update if there's none running
-			fmt.Println("New pending block", "number", h.Number)
+			fmt.Println("New pending block", "number", h.Number[sliceIndex])
 			m.fetchPendingBlocks(sliceIndex)
 		}
 	}
@@ -192,7 +194,30 @@ func (m *Manager) updateCombinedHeader(header *types.Header, i int) {
 func (m *Manager) loopGlobalBlock() error {
 	for {
 		select {
+		case block := <-m.pendingPrimeBlockCh:
+			time.Sleep(30 * time.Second)
+			header := block.Header()
+			m.updateCombinedHeader(header, 0)
+			m.pendingBlocks[1] = block
+			header.Nonce, header.MixDigest = types.BlockNonce{}, []common.Hash{common.Hash{}, common.Hash{}, common.Hash{}}
+			select {
+			case m.resultCh <- block.WithSeal(header):
+			default:
+				fmt.Println("Sealing result is not read by miner", "mode", "fake", "sealhash")
+			}
+		case block := <-m.pendingRegionBlockCh:
+			time.Sleep(15 * time.Second)
+			header := block.Header()
+			m.updateCombinedHeader(header, 1)
+			m.pendingBlocks[1] = block
+			header.Nonce, header.MixDigest = types.BlockNonce{}, []common.Hash{common.Hash{}, common.Hash{}, common.Hash{}}
+			select {
+			case m.resultCh <- block.WithSeal(header):
+			default:
+				fmt.Println("Sealing result is not read by miner", "mode", "fake", "sealhash")
+			}
 		case block := <-m.pendingZoneBlockCh:
+			fmt.Println("Sending Sealed Zone Block to Node")
 			time.Sleep(3 * time.Second)
 			header := block.Header()
 			m.updateCombinedHeader(header, 2)
@@ -211,10 +236,15 @@ func (m *Manager) resultLoop() error {
 	for {
 		select {
 		case block := <-m.resultCh:
-			fmt.Println("Sending Mined Block", block.Header().Number)
 			// Check proper difficulty for which nodes to send block to
 			for i := 0; i < len(m.availableClients); i++ {
 				if m.availableClients[i] {
+					if block.Header().Number[2] != nil && block.Header().Number[2].Uint64()%30 != 0 && i == 0 {
+						continue
+					}
+					if block.Header().Number[2] != nil && block.Header().Number[2].Uint64()%15 != 0 && i == 1 {
+						continue
+					}
 					m.clientSlice[i].SendMinedBlock(context.Background(), block, true, true)
 				}
 			}

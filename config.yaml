@@ -1,3 +1,3 @@
-PrimeMiningNode: 
-RegionMiningNode:
+# PrimeMiningNode: "ws://127.0.0.1:8548"
+# RegionMiningNode: "ws://127.0.0.1:8547"
 ZoneMiningNode: "ws://127.0.0.1:8546"
