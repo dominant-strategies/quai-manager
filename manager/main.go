@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/ethereum/go-ethereum/common"
+	"github.com/ethereum/go-ethereum/consensus/ethash"
 	"github.com/ethereum/go-ethereum/core/types"
 	"github.com/ethereum/go-ethereum/ethclient"
 	"github.com/ethereum/go-ethereum/params"
@@ -20,20 +21,19 @@ import (
 const (
 	// resultQueueSize is the size of channel listening to sealing result.
 	resultQueueSize = 10
-
-	ContextDepth = 1
 )
 
 var exit = make(chan bool)
 
 type Manager struct {
 	config *params.ChainConfig // Chain configurations for signing
+	engine *ethash.Ethash
 
 	clientSlice      []*ethclient.Client
 	availableClients []bool
 	combinedHeader   *types.Header
 	pendingBlocks    []*types.Block // Current pending blocks of the manager
-	lock             []sync.RWMutex
+	lock             sync.Mutex
 	conns            []*wsConn // Currently live websocket connections
 
 	pendingPrimeBlockCh  chan *types.Block
@@ -41,7 +41,7 @@ type Manager struct {
 	pendingZoneBlockCh   chan *types.Block
 
 	updatedCh chan *types.Header
-	resultCh  chan *types.Block
+	resultCh  chan *types.HeaderBundle
 	startCh   chan struct{}
 	exitCh    chan struct{}
 
@@ -85,7 +85,7 @@ func main() {
 	if config.ZoneMiningNode != "" {
 		clientSlice[2], err = ethclient.Dial(config.ZoneMiningNode)
 		if err != nil {
-			fmt.Println("Error connecting to Prime mining node")
+			fmt.Println("Error connecting to Zone mining node")
 		} else {
 			available[2] = true
 		}
@@ -102,12 +102,22 @@ func main() {
 		Difficulty:  make([]*big.Int, 3),
 		Root:        make([]common.Hash, 3),
 		TxHash:      make([]common.Hash, 3),
+		UncleHash:   make([]common.Hash, 3),
 		ReceiptHash: make([]common.Hash, 3),
 		GasUsed:     make([]uint64, 3),
 		Bloom:       make([]types.Bloom, 3),
 	}
 
+	sharedConfig := ethash.Config{
+		PowMode:       ethash.ModeNormal,
+		CachesInMem:   3,
+		DatasetsInMem: 1,
+	}
+
+	ethashEngine := ethash.New(sharedConfig, nil, false)
+	ethashEngine.SetThreads(4)
 	m := &Manager{
+		engine:               ethashEngine,
 		clientSlice:          clientSlice,
 		availableClients:     available,
 		combinedHeader:       header,
@@ -115,11 +125,10 @@ func main() {
 		pendingPrimeBlockCh:  make(chan *types.Block, resultQueueSize),
 		pendingRegionBlockCh: make(chan *types.Block, resultQueueSize),
 		pendingZoneBlockCh:   make(chan *types.Block, resultQueueSize),
-		resultCh:             make(chan *types.Block, resultQueueSize),
+		resultCh:             make(chan *types.HeaderBundle, resultQueueSize),
 		updatedCh:            make(chan *types.Header, resultQueueSize),
 		exitCh:               make(chan struct{}),
 		startCh:              make(chan struct{}, 1),
-		lock:                 make([]sync.RWMutex, 3),
 	}
 
 	for i := 0; i < len(m.availableClients); i++ {
@@ -129,6 +138,10 @@ func main() {
 	}
 
 	go m.resultLoop()
+
+	go m.miningLoop()
+
+	go m.WatchHashRate()
 
 	go m.loopGlobalBlock()
 
@@ -168,16 +181,21 @@ func (m *Manager) fetchPendingBlocks(sliceIndex int) {
 	}
 	switch sliceIndex {
 	case 0:
+		fmt.Println("Sending prime block to channel")
 		m.pendingPrimeBlockCh <- block
 	case 1:
+		fmt.Println("Sending region block to channel")
 		m.pendingRegionBlockCh <- block
 	case 2:
+		fmt.Println("Sending zone block to channel")
 		m.pendingZoneBlockCh <- block
 	}
 }
 
 func (m *Manager) updateCombinedHeader(header *types.Header, i int) {
+	m.lock.Lock()
 	m.combinedHeader.ParentHash[i] = header.ParentHash[i]
+	m.combinedHeader.UncleHash[i] = header.UncleHash[i]
 	m.combinedHeader.Number[i] = header.Number[i]
 	m.combinedHeader.Extra[i] = header.Extra[i]
 	m.combinedHeader.BaseFee[i] = header.BaseFee[i]
@@ -189,42 +207,44 @@ func (m *Manager) updateCombinedHeader(header *types.Header, i int) {
 	m.combinedHeader.Difficulty[i] = header.Difficulty[i]
 	m.combinedHeader.Coinbase[i] = header.Coinbase[i]
 	m.combinedHeader.Bloom[i] = header.Bloom[i]
+	m.combinedHeader.Time = header.Time
+	m.lock.Unlock()
+
 }
 
 func (m *Manager) loopGlobalBlock() error {
 	for {
 		select {
 		case block := <-m.pendingPrimeBlockCh:
-			time.Sleep(30 * time.Second)
 			header := block.Header()
 			m.updateCombinedHeader(header, 0)
-			m.pendingBlocks[1] = block
-			header.Nonce, header.MixDigest = types.BlockNonce{}, []common.Hash{common.Hash{}, common.Hash{}, common.Hash{}}
+			fmt.Println("Prime combined header info", m.combinedHeader.Number)
+			m.pendingBlocks[0] = block
+			header.Nonce, header.MixDigest = types.BlockNonce{}, common.Hash{}
 			select {
-			case m.resultCh <- block.WithSeal(header):
+			case m.updatedCh <- m.combinedHeader:
 			default:
 				fmt.Println("Sealing result is not read by miner", "mode", "fake", "sealhash")
 			}
 		case block := <-m.pendingRegionBlockCh:
-			time.Sleep(15 * time.Second)
 			header := block.Header()
 			m.updateCombinedHeader(header, 1)
+			fmt.Println("Region combined header info", m.combinedHeader.Number)
 			m.pendingBlocks[1] = block
-			header.Nonce, header.MixDigest = types.BlockNonce{}, []common.Hash{common.Hash{}, common.Hash{}, common.Hash{}}
+			header.Nonce, header.MixDigest = types.BlockNonce{}, common.Hash{}
 			select {
-			case m.resultCh <- block.WithSeal(header):
+			case m.updatedCh <- m.combinedHeader:
 			default:
 				fmt.Println("Sealing result is not read by miner", "mode", "fake", "sealhash")
 			}
 		case block := <-m.pendingZoneBlockCh:
-			fmt.Println("Sending Sealed Zone Block to Node")
-			time.Sleep(3 * time.Second)
 			header := block.Header()
 			m.updateCombinedHeader(header, 2)
+			fmt.Println("Zone combined header info", m.combinedHeader.Number)
 			m.pendingBlocks[2] = block
-			header.Nonce, header.MixDigest = types.BlockNonce{}, []common.Hash{common.Hash{}, common.Hash{}, common.Hash{}}
+			header.Nonce, header.MixDigest = types.BlockNonce{}, common.Hash{}
 			select {
-			case m.resultCh <- block.WithSeal(header):
+			case m.updatedCh <- m.combinedHeader:
 			default:
 				fmt.Println("Sealing result is not read by miner", "mode", "fake", "sealhash")
 			}
@@ -232,20 +252,93 @@ func (m *Manager) loopGlobalBlock() error {
 	}
 }
 
+func (m *Manager) miningLoop() error {
+	var (
+		stopCh chan struct{}
+	)
+	// interrupt aborts the in-flight sealing task.
+	interrupt := func() {
+		if stopCh != nil {
+			close(stopCh)
+			stopCh = nil
+		}
+	}
+	for {
+		select {
+		case header := <-m.updatedCh:
+			// Mine the header here
+			// Return the valid header with proper nonce and mix digest
+			fmt.Println("Mining block with numbers", header.Number)
+
+			// Interrupt previous sealing operation
+			interrupt()
+			stopCh = make(chan struct{})
+			if err := m.engine.MergedMineSeal(header, m.resultCh, stopCh); err != nil {
+				fmt.Println("Block sealing failed", "err", err)
+			}
+		}
+	}
+}
+
+func (m *Manager) WatchHashRate() {
+	ticker := time.NewTicker(10 * time.Second)
+	go func() {
+		for {
+			select {
+			case <-ticker.C:
+				fmt.Println("Current Hashrate", m.engine.Hashrate())
+			}
+		}
+	}()
+}
+
 func (m *Manager) resultLoop() error {
 	for {
 		select {
-		case block := <-m.resultCh:
+		case bundle := <-m.resultCh:
+
+			header := bundle.Header
+
+			if bundle.Context == 0 {
+				fmt.Println("Found a Prime block!")
+			}
+
+			if bundle.Context == 1 {
+				fmt.Println("Found a Region block!")
+			}
+
+			if bundle.Context == 2 {
+				fmt.Println("Found a Zone block!")
+			}
+
 			// Check proper difficulty for which nodes to send block to
-			for i := 0; i < len(m.availableClients); i++ {
-				if m.availableClients[i] {
-					if block.Header().Number[2] != nil && block.Header().Number[2].Uint64()%30 != 0 && i == 0 {
-						continue
-					}
-					if block.Header().Number[2] != nil && block.Header().Number[2].Uint64()%15 != 0 && i == 1 {
-						continue
-					}
-					m.clientSlice[i].SendMinedBlock(context.Background(), block, true, true)
+			// If Prime difficulty send to Prime
+			if bundle.Context == 0 && header.Number[1] != nil && m.availableClients[0] {
+				block := m.pendingBlocks[0]
+				if block != nil {
+					sealed := block.WithSeal(header)
+					fmt.Println("Sending block to Prime", header.Number)
+					m.clientSlice[0].SendMinedBlock(context.Background(), sealed, true, true)
+				}
+			}
+
+			// If Region difficulty send to Region
+			if bundle.Context <= 1 && header.Number[1] != nil && m.availableClients[1] {
+				block := m.pendingBlocks[2]
+				if block != nil {
+					sealed := block.WithSeal(header)
+					fmt.Println("Sending block to Region", header.Number)
+					m.clientSlice[1].SendMinedBlock(context.Background(), sealed, true, true)
+				}
+			}
+
+			// If Zone difficulty send to Zone
+			if bundle.Context <= 2 && header.Number[2] != nil && m.availableClients[2] {
+				block := m.pendingBlocks[2]
+				if block != nil {
+					sealed := block.WithSeal(header)
+					fmt.Println("Sending block to Zone", header.Number)
+					m.clientSlice[2].SendMinedBlock(context.Background(), sealed, true, true)
 				}
 			}
 		}
