@@ -319,6 +319,8 @@ func (m *Manager) resultLoop() error {
 					sealed := block.WithSeal(header)
 					fmt.Println("Sending block to Prime", header.Number)
 					m.clientSlice[0].SendMinedBlock(context.Background(), sealed, true, true)
+					m.clientSlice[1].SendExternalBlock(context.Background(), sealed, big.NewInt(0))
+					m.clientSlice[2].SendExternalBlock(context.Background(), sealed, big.NewInt(0))
 				}
 			}
 
@@ -329,6 +331,8 @@ func (m *Manager) resultLoop() error {
 					sealed := block.WithSeal(header)
 					fmt.Println("Sending block to Region", header.Number)
 					m.clientSlice[1].SendMinedBlock(context.Background(), sealed, true, true)
+					m.clientSlice[0].SendExternalBlock(context.Background(), sealed, big.NewInt(1))
+					m.clientSlice[2].SendExternalBlock(context.Background(), sealed, big.NewInt(1))
 				}
 			}
 
@@ -339,6 +343,8 @@ func (m *Manager) resultLoop() error {
 					sealed := block.WithSeal(header)
 					fmt.Println("Sending block to Zone", header.Number)
 					m.clientSlice[2].SendMinedBlock(context.Background(), sealed, true, true)
+					m.clientSlice[0].SendExternalBlock(context.Background(), sealed, big.NewInt(2))
+					m.clientSlice[1].SendExternalBlock(context.Background(), sealed, big.NewInt(2))
 				}
 			}
 		}
