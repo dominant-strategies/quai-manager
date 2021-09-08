@@ -10,6 +10,7 @@ type Config struct {
 	PrimeMiningNode  string
 	RegionMiningNode string
 	ZoneMiningNode   string
+	Location         []byte
 }
 
 // LoadConfig reads configuration from file or environment variables.
