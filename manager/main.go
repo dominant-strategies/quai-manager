@@ -32,14 +32,14 @@ type Manager struct {
 	clientSlice      []*ethclient.Client
 	availableClients []bool
 	combinedHeader   *types.Header
-	pendingBlocks    []*types.Block // Current pending blocks of the manager
+	pendingBlocks    []*types.ReceiptBlock // Current pending blocks of the manager
 	lock             sync.Mutex
 	conns            []*wsConn // Currently live websocket connections
 	location         []byte
 
-	pendingPrimeBlockCh  chan *types.Block
-	pendingRegionBlockCh chan *types.Block
-	pendingZoneBlockCh   chan *types.Block
+	pendingPrimeBlockCh  chan *types.ReceiptBlock
+	pendingRegionBlockCh chan *types.ReceiptBlock
+	pendingZoneBlockCh   chan *types.ReceiptBlock
 
 	updatedCh chan *types.Header
 	resultCh  chan *types.HeaderBundle
@@ -122,10 +122,10 @@ func main() {
 		clientSlice:          clientSlice,
 		availableClients:     available,
 		combinedHeader:       header,
-		pendingBlocks:        make([]*types.Block, 3),
-		pendingPrimeBlockCh:  make(chan *types.Block, resultQueueSize),
-		pendingRegionBlockCh: make(chan *types.Block, resultQueueSize),
-		pendingZoneBlockCh:   make(chan *types.Block, resultQueueSize),
+		pendingBlocks:        make([]*types.ReceiptBlock, 3),
+		pendingPrimeBlockCh:  make(chan *types.ReceiptBlock, resultQueueSize),
+		pendingRegionBlockCh: make(chan *types.ReceiptBlock, resultQueueSize),
+		pendingZoneBlockCh:   make(chan *types.ReceiptBlock, resultQueueSize),
 		resultCh:             make(chan *types.HeaderBundle, resultQueueSize),
 		updatedCh:            make(chan *types.Header, resultQueueSize),
 		exitCh:               make(chan struct{}),
@@ -175,17 +175,17 @@ func (m *Manager) subscribePendingHeader(sliceIndex int) {
 }
 
 func (m *Manager) fetchPendingBlocks(sliceIndex int) {
-	block, err := m.clientSlice[sliceIndex].GetPendingBlock(context.Background())
+	receiptBlock, err := m.clientSlice[sliceIndex].GetPendingBlock(context.Background())
 	if err != nil {
 		log.Fatal("Pending block not found: ", err)
 	}
 	switch sliceIndex {
 	case 0:
-		m.pendingPrimeBlockCh <- block
+		m.pendingPrimeBlockCh <- receiptBlock
 	case 1:
-		m.pendingRegionBlockCh <- block
+		m.pendingRegionBlockCh <- receiptBlock
 	case 2:
-		m.pendingZoneBlockCh <- block
+		m.pendingZoneBlockCh <- receiptBlock
 	}
 }
 
@@ -346,12 +346,12 @@ func (m *Manager) resultLoop() error {
 }
 
 func (m *Manager) NotifyBlock(mined int64, externalContexts []int, header *types.Header, wg *sync.WaitGroup) {
-	block := m.pendingBlocks[mined]
-	if block != nil {
-		sealed := block.WithSeal(header)
+	receiptBlock := m.pendingBlocks[mined]
+	if receiptBlock != nil {
+		block := types.NewBlockWithHeader(header).WithBody(receiptBlock.Transactions(), receiptBlock.Uncles())
 		for i := 0; i < len(externalContexts); i++ {
 			if m.availableClients[externalContexts[i]] {
-				m.clientSlice[externalContexts[i]].SendExternalBlock(context.Background(), sealed, big.NewInt(mined))
+				m.clientSlice[externalContexts[i]].SendExternalBlock(context.Background(), block, receiptBlock.Receipts(), big.NewInt(mined))
 			}
 		}
 	}
@@ -359,7 +359,8 @@ func (m *Manager) NotifyBlock(mined int64, externalContexts []int, header *types
 }
 
 func (m *Manager) SendMinedBlock(mined int64, header *types.Header) {
-	block := m.pendingBlocks[mined]
+	receiptBlock := m.pendingBlocks[mined]
+	block := types.NewBlockWithHeader(receiptBlock.Header()).WithBody(receiptBlock.Transactions(), receiptBlock.Uncles())
 	if block != nil && m.availableClients[mined] {
 		sealed := block.WithSeal(header)
 		m.clientSlice[mined].SendMinedBlock(context.Background(), sealed, true, true)
