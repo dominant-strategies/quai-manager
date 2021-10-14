@@ -1,7 +1,0 @@
-# PrimeMiningNode: "ws://127.0.0.1:8548"
-# RegionMiningNode: "ws://127.0.0.1:8547"
-# ZoneMiningNode: "ws://127.0.0.1:8546"
-PrimeMiningNode: "ws://quai-prime.default.svc.cluster.local:8548"
-RegionMiningNode: "ws://quai-prime.default.svc.cluster.local:8547"
-ZoneMiningNode: "ws://quai-prime.default.svc.cluster.local:8546"
-Location: [1, 1]
