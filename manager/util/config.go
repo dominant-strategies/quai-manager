@@ -7,8 +7,10 @@ import (
 )
 
 type Config struct {
-	Regions []string
-	Zones   []string
+	PrimeURL   string
+	RegionURLs []string
+	ZoneURLs   [][]string
+	Location   []byte
 }
 
 // LoadConfig reads configuration from file or environment variables.
