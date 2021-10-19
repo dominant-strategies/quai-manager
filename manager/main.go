@@ -462,7 +462,6 @@ func (m *Manager) SendMinedBlock(mined int64, header *types.Header) {
 	receiptBlock := m.pendingBlocks[mined]
 	block := types.NewBlockWithHeader(receiptBlock.Header()).WithBody(receiptBlock.Transactions(), receiptBlock.Uncles())
 	if block != nil && m.miningAvailable[mined] {
-		fmt.Println("Context", mined, "txs", len(block.Transactions()))
 		sealed := block.WithSeal(header)
 		m.miningClients[mined].SendMinedBlock(context.Background(), sealed, true, true)
 	}
