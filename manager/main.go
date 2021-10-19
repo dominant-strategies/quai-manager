@@ -119,6 +119,7 @@ func main() {
 		location:             config.Location,
 	}
 
+	fmt.Println("Starting manager in location ", config.Location)
 	for i := 0; i < len(m.miningClients); i++ {
 		if m.miningAvailable[i] {
 			go m.subscribePendingHeader(i)
@@ -151,7 +152,7 @@ func getMiningClients(config util.Config) ([]*ethclient.Client, []bool) {
 	if config.PrimeURL != "" {
 		miningClients[0], err = ethclient.Dial(config.PrimeURL)
 		if err != nil {
-			fmt.Println(err)
+			fmt.Println("Error connecting to Prime mining node")
 		} else {
 			miningAvailable[0] = true
 		}
@@ -461,6 +462,7 @@ func (m *Manager) SendMinedBlock(mined int64, header *types.Header) {
 	receiptBlock := m.pendingBlocks[mined]
 	block := types.NewBlockWithHeader(receiptBlock.Header()).WithBody(receiptBlock.Transactions(), receiptBlock.Uncles())
 	if block != nil && m.miningAvailable[mined] {
+		fmt.Println("Context", mined, "txs", len(block.Transactions()))
 		sealed := block.WithSeal(header)
 		m.miningClients[mined].SendMinedBlock(context.Background(), sealed, true, true)
 	}
