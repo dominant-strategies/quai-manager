@@ -213,7 +213,7 @@ func getExtClients(config util.Config) []*extBlockClient {
 				if extZoneURL != "" {
 					zoneClient, err := ethclient.Dial(extZoneURL)
 					if err != nil {
-						fmt.Println("Error connecting to Zone, context:", i, j)
+						fmt.Println("Error connecting to Zone, context:", i+1, j+1)
 					} else {
 						extBlockClient.zonesAvailable[j] = true
 						extBlockClient.zoneClients[j] = zoneClient
@@ -268,6 +268,10 @@ func (m *Manager) fetchPendingBlocks(sliceIndex int) {
 // being mined. This is then sent to the miner where a valid header is returned upon respective difficulties.
 func (m *Manager) updateCombinedHeader(header *types.Header, i int) {
 	m.lock.Lock()
+	time := header.Time
+	if time <= m.combinedHeader.Time {
+		time = m.combinedHeader.Time
+	}
 	m.combinedHeader.ParentHash[i] = header.ParentHash[i]
 	m.combinedHeader.UncleHash[i] = header.UncleHash[i]
 	m.combinedHeader.Number[i] = header.Number[i]
@@ -281,10 +285,9 @@ func (m *Manager) updateCombinedHeader(header *types.Header, i int) {
 	m.combinedHeader.Difficulty[i] = header.Difficulty[i]
 	m.combinedHeader.Coinbase[i] = header.Coinbase[i]
 	m.combinedHeader.Bloom[i] = header.Bloom[i]
-	m.combinedHeader.Time = header.Time
+	m.combinedHeader.Time = time
 	m.combinedHeader.Location = m.location
 	m.lock.Unlock()
-
 }
 
 // loopGlobalBlock takes in updates from the pending headers and blocks in order to update the miner.
