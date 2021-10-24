@@ -2,7 +2,7 @@ module github.com/spruce-solutions/quai-manager
 
 go 1.16
 
-replace github.com/ethereum/go-ethereum => /Users/alan/code/go-quai
+replace github.com/ethereum/go-ethereum => /Users/shreekara/Desktop/quai/go-quai
 
 require (
 	github.com/ethereum/go-ethereum v1.10.5
