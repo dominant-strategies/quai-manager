@@ -350,6 +350,11 @@ func (m *Manager) miningLoop() error {
 			// Interrupt previous sealing operation
 			interrupt()
 			stopCh = make(chan struct{})
+			// See if we can grab the lock in order to start mining
+			// Lock should be held while sending mined blocks
+			// Reduce race conditions while sending mined blocks and waiting for pending headers
+			m.lock.Lock()
+			m.lock.Unlock()
 			if err := m.engine.MergedMineSeal(header, m.resultCh, stopCh); err != nil {
 				fmt.Println("Block sealing failed", "err", err)
 			}
@@ -401,9 +406,13 @@ func (m *Manager) resultLoop() error {
 				wg.Add(1)
 				go m.SendClientsExtBlock(2, []int{0, 1}, header, &wg)
 				wg.Wait()
-				m.SendMinedBlock(0, header)
-				m.SendMinedBlock(1, header)
-				m.SendMinedBlock(2, header)
+				wg.Add(1)
+				go m.SendMinedBlock(2, header, &wg)
+				wg.Add(1)
+				go m.SendMinedBlock(1, header, &wg)
+				wg.Add(1)
+				go m.SendMinedBlock(0, header, &wg)
+				wg.Wait()
 			}
 
 			// If Region difficulty send to Region
@@ -414,8 +423,11 @@ func (m *Manager) resultLoop() error {
 				wg.Add(1)
 				go m.SendClientsExtBlock(2, []int{0, 1}, header, &wg)
 				wg.Wait()
-				m.SendMinedBlock(1, header)
-				m.SendMinedBlock(2, header)
+				wg.Add(1)
+				go m.SendMinedBlock(2, header, &wg)
+				wg.Add(1)
+				go m.SendMinedBlock(1, header, &wg)
+				wg.Wait()
 			}
 
 			// If Zone difficulty send to Zone
@@ -424,7 +436,9 @@ func (m *Manager) resultLoop() error {
 				wg.Add(1)
 				go m.SendClientsExtBlock(2, []int{0, 1}, header, &wg)
 				wg.Wait()
-				m.SendMinedBlock(2, header)
+				wg.Add(1)
+				go m.SendMinedBlock(2, header, &wg)
+				wg.Wait()
 			}
 			m.lock.Unlock()
 		}
@@ -461,11 +475,12 @@ func (m *Manager) SendClientsExtBlock(mined int64, externalContexts []int, heade
 }
 
 // SendMinedBlock sends the mined block to its mining client with the transactions, uncles, and receipts.
-func (m *Manager) SendMinedBlock(mined int64, header *types.Header) {
+func (m *Manager) SendMinedBlock(mined int64, header *types.Header, wg *sync.WaitGroup) {
 	receiptBlock := m.pendingBlocks[mined]
 	block := types.NewBlockWithHeader(receiptBlock.Header()).WithBody(receiptBlock.Transactions(), receiptBlock.Uncles())
 	if block != nil && m.miningAvailable[mined] {
 		sealed := block.WithSeal(header)
 		m.miningClients[mined].SendMinedBlock(context.Background(), sealed, true, true)
 	}
+	defer wg.Done()
 }
