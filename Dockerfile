@@ -9,10 +9,10 @@ FROM golang:1.16-alpine as builder
 RUN apk add --no-cache gcc musl-dev linux-headers git
 
 ADD . /quai-manager
-
-WORKDIR /quai-manager
+RUN cd /quai-manager && go build -o manager manager/main.go
 
 EXPOSE 8545 8546 8547 8548
+ENTRYPOINT ["manager"]
 
 # Add some metadata labels to help programatic image consumption
 ARG COMMIT=""
