@@ -250,10 +250,12 @@ func (m *Manager) subscribePendingHeader(sliceIndex int) {
 // fetchPendingBlocks gets the latest block when we have received a new pending header. This will get the receipts,
 // transactions, and uncles to be stored during mining.
 func (m *Manager) fetchPendingBlocks(sliceIndex int) {
+	m.lock.Lock()
 	receiptBlock, err := m.miningClients[sliceIndex].GetPendingBlock(context.Background())
 	if err != nil {
 		log.Fatal("Pending block not found for index: ", sliceIndex, " error: ", err)
 	}
+	m.lock.Unlock()
 	switch sliceIndex {
 	case 0:
 		m.pendingPrimeBlockCh <- receiptBlock
