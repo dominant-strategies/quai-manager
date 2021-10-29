@@ -253,7 +253,8 @@ func (m *Manager) fetchPendingBlocks(sliceIndex int) {
 	m.lock.Lock()
 	receiptBlock, err := m.miningClients[sliceIndex].GetPendingBlock(context.Background())
 	if err != nil {
-		log.Fatal("Pending block not found for index: ", sliceIndex, " error: ", err)
+		log.Print("Pending block not found for index: ", sliceIndex, " error: ", err)
+		return
 	}
 	m.lock.Unlock()
 	switch sliceIndex {
@@ -269,6 +270,7 @@ func (m *Manager) fetchPendingBlocks(sliceIndex int) {
 // updateCombinedHeader performs the merged mining step of combining all headers from the slice of nodes
 // being mined. This is then sent to the miner where a valid header is returned upon respective difficulties.
 func (m *Manager) updateCombinedHeader(header *types.Header, i int) {
+	fmt.Println(header.UncleHash[i])
 	m.lock.Lock()
 	time := header.Time
 	if time <= m.combinedHeader.Time {
@@ -482,7 +484,6 @@ func (m *Manager) SendMinedBlock(mined int64, header *types.Header, wg *sync.Wai
 	block := types.NewBlockWithHeader(receiptBlock.Header()).WithBody(receiptBlock.Transactions(), receiptBlock.Uncles())
 	if block != nil && m.miningAvailable[mined] {
 		sealed := block.WithSeal(header)
-		fmt.Println("Length of Uncles", len(block.Uncles()))
 		m.miningClients[mined].SendMinedBlock(context.Background(), sealed, true, true)
 	}
 	defer wg.Done()
