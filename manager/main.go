@@ -482,6 +482,7 @@ func (m *Manager) SendMinedBlock(mined int64, header *types.Header, wg *sync.Wai
 	block := types.NewBlockWithHeader(receiptBlock.Header()).WithBody(receiptBlock.Transactions(), receiptBlock.Uncles())
 	if block != nil && m.miningAvailable[mined] {
 		sealed := block.WithSeal(header)
+		fmt.Println("Length of Uncles", len(block.Uncles()))
 		m.miningClients[mined].SendMinedBlock(context.Background(), sealed, true, true)
 	}
 	defer wg.Done()
