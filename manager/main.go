@@ -256,6 +256,7 @@ func (m *Manager) fetchPendingBlocks(sliceIndex int) {
 
 	m.lock.Lock()
 	receiptBlock, err = m.miningClients[sliceIndex].GetPendingBlock(context.Background())
+
 	if err != nil {
 		fmt.Println("Pending block not found for index:", sliceIndex, "error:", err)
 
@@ -266,7 +267,8 @@ func (m *Manager) fetchPendingBlocks(sliceIndex int) {
 			}
 
 			if i >= retryAttempts {
-				log.Fatal("Pending block was never found for index:", sliceIndex, " even after ", retryAttempts, " retry attempts ", "error:", err)
+				fmt.Println("Pending block was never found for index:", sliceIndex, " even after ", retryAttempts, " retry attempts ", "error:", err)
+				return
 			}
 
 			time.Sleep(time.Second)
