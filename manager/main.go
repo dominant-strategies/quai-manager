@@ -267,7 +267,6 @@ func (m *Manager) fetchPendingBlocks(sliceIndex int) {
 
 			if i >= retryAttempts {
 				log.Fatal("Pending block was never found for index:", sliceIndex, " even after ", retryAttempts, " retry attempts ", "error:", err)
-				break
 			}
 
 			time.Sleep(time.Second)
