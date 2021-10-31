@@ -250,10 +250,30 @@ func (m *Manager) subscribePendingHeader(sliceIndex int) {
 // fetchPendingBlocks gets the latest block when we have received a new pending header. This will get the receipts,
 // transactions, and uncles to be stored during mining.
 func (m *Manager) fetchPendingBlocks(sliceIndex int) {
+	retryAttempts := 5
+	var receiptBlock *types.ReceiptBlock
+	var err error
+
 	m.lock.Lock()
-	receiptBlock, err := m.miningClients[sliceIndex].GetPendingBlock(context.Background())
+	receiptBlock, err = m.miningClients[sliceIndex].GetPendingBlock(context.Background())
 	if err != nil {
-		log.Fatal("Pending block not found for index: ", sliceIndex, " error: ", err)
+		fmt.Println("Pending block not found for index:", sliceIndex, "error:", err)
+
+		for i := 0; ; i++ {
+			receiptBlock, err = m.miningClients[sliceIndex].GetPendingBlock(context.Background())
+			if err == nil {
+				break
+			}
+
+			if i >= retryAttempts {
+				log.Fatal("Pending block was never found for index:", sliceIndex, " even after ", retryAttempts, " retry attempts ", "error:", err)
+				break
+			}
+
+			time.Sleep(time.Second)
+
+			fmt.Println("Retry attempt:", i+1, "Pending block not found for index:", sliceIndex, "error:", err)
+		}
 	}
 	m.lock.Unlock()
 	switch sliceIndex {
@@ -482,7 +502,6 @@ func (m *Manager) SendMinedBlock(mined int64, header *types.Header, wg *sync.Wai
 	block := types.NewBlockWithHeader(receiptBlock.Header()).WithBody(receiptBlock.Transactions(), receiptBlock.Uncles())
 	if block != nil && m.miningAvailable[mined] {
 		sealed := block.WithSeal(header)
-		fmt.Println("Length of Uncles", len(block.Uncles()))
 		m.miningClients[mined].SendMinedBlock(context.Background(), sealed, true, true)
 	}
 	defer wg.Done()
