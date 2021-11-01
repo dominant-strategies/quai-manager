@@ -250,11 +250,31 @@ func (m *Manager) subscribePendingHeader(sliceIndex int) {
 // fetchPendingBlocks gets the latest block when we have received a new pending header. This will get the receipts,
 // transactions, and uncles to be stored during mining.
 func (m *Manager) fetchPendingBlocks(sliceIndex int) {
+	retryAttempts := 5
+	var receiptBlock *types.ReceiptBlock
+	var err error
+
 	m.lock.Lock()
-	receiptBlock, err := m.miningClients[sliceIndex].GetPendingBlock(context.Background())
+	receiptBlock, err = m.miningClients[sliceIndex].GetPendingBlock(context.Background())
+
 	if err != nil {
-		log.Print("Pending block not found for index: ", sliceIndex, " error: ", err)
-		return
+		fmt.Println("Pending block not found for index:", sliceIndex, "error:", err)
+
+		for i := 0; ; i++ {
+			receiptBlock, err = m.miningClients[sliceIndex].GetPendingBlock(context.Background())
+			if err == nil {
+				break
+			}
+
+			if i >= retryAttempts {
+				fmt.Println("Pending block was never found for index:", sliceIndex, " even after ", retryAttempts, " retry attempts ", "error:", err)
+				return
+			}
+
+			time.Sleep(time.Second)
+
+			fmt.Println("Retry attempt:", i+1, "Pending block not found for index:", sliceIndex, "error:", err)
+		}
 	}
 	m.lock.Unlock()
 	switch sliceIndex {
@@ -270,7 +290,6 @@ func (m *Manager) fetchPendingBlocks(sliceIndex int) {
 // updateCombinedHeader performs the merged mining step of combining all headers from the slice of nodes
 // being mined. This is then sent to the miner where a valid header is returned upon respective difficulties.
 func (m *Manager) updateCombinedHeader(header *types.Header, i int) {
-	fmt.Println(header.UncleHash[i])
 	m.lock.Lock()
 	time := header.Time
 	if time <= m.combinedHeader.Time {
