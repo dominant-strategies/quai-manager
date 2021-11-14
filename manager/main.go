@@ -78,20 +78,21 @@ func main() {
 	extBlockClients := getExtClients(config)
 
 	header := &types.Header{
-		ParentHash:  make([]common.Hash, 3),
-		Number:      make([]*big.Int, 3),
-		Extra:       make([][]byte, 3),
-		Time:        uint64(0),
-		BaseFee:     make([]*big.Int, 3),
-		GasLimit:    make([]uint64, 3),
-		Coinbase:    make([]common.Address, 3),
-		Difficulty:  make([]*big.Int, 3),
-		Root:        make([]common.Hash, 3),
-		TxHash:      make([]common.Hash, 3),
-		UncleHash:   make([]common.Hash, 3),
-		ReceiptHash: make([]common.Hash, 3),
-		GasUsed:     make([]uint64, 3),
-		Bloom:       make([]types.Bloom, 3),
+		ParentHash:        make([]common.Hash, 3),
+		Number:            make([]*big.Int, 3),
+		Extra:             make([][]byte, 3),
+		Time:              uint64(0),
+		BaseFee:           make([]*big.Int, 3),
+		GasLimit:          make([]uint64, 3),
+		Coinbase:          make([]common.Address, 3),
+		Difficulty:        make([]*big.Int, 3),
+		NetworkDifficulty: make([]*big.Int, 3),
+		Root:              make([]common.Hash, 3),
+		TxHash:            make([]common.Hash, 3),
+		UncleHash:         make([]common.Hash, 3),
+		ReceiptHash:       make([]common.Hash, 3),
+		GasUsed:           make([]uint64, 3),
+		Bloom:             make([]types.Bloom, 3),
 	}
 
 	sharedConfig := ethash.Config{
@@ -306,6 +307,7 @@ func (m *Manager) updateCombinedHeader(header *types.Header, i int) {
 	m.combinedHeader.ReceiptHash[i] = header.ReceiptHash[i]
 	m.combinedHeader.Root[i] = header.Root[i]
 	m.combinedHeader.Difficulty[i] = header.Difficulty[i]
+	m.combinedHeader.NetworkDifficulty[i] = header.NetworkDifficulty[i]
 	m.combinedHeader.Coinbase[i] = header.Coinbase[i]
 	m.combinedHeader.Bloom[i] = header.Bloom[i]
 	m.combinedHeader.Time = time
