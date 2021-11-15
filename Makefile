@@ -1,3 +1,15 @@
-.PHONY publish:
-	docker build -t quainetwork/quai-manager .
-	docker push quainetwork/quai-manager
+# This Makefile is meant to be used by people that do not usually work
+# with Go source code. If you know what GOPATH is then you probably
+# don't need to bother with make.
+
+GOBIN = ./build/bin
+GO ?= latest
+GORUN = env GO111MODULE=on go run
+
+quai-manager:
+	go build -o ./build/bin/manager manager/main.go     
+	@echo "Done building."
+	@echo "Run \"$(GOBIN)/manager\" to launch quai-manager"
+
+run:
+	./build/bin/manager  
