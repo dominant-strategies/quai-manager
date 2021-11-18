@@ -24,6 +24,9 @@ To configure the mining endpoints in which the manager will pull from:
 1. Copy the config/config.yaml.dist into config/config.yaml.
 2. Edit the endpoints to your choosing. Default is set to local node endpoints with default WebSocket endpoints for each node.
 
+The miner is defaulted to run Prime, Cyprus, and Cyprus One. If you wish to mine on another slice you can modify the config/config.yaml Location: [1, 1]. The location in which you mine chooses the Region and subsequent Zone of the Region.
+
+Example of running Prime, Paxos, and Paxos Three: Location: [2, 3]
 
 ## Run the manager
 
