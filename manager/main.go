@@ -200,7 +200,7 @@ func getExtClients(config util.Config) []*extBlockClient {
 			if extRegionURL != "" {
 				regionClient, err := ethclient.Dial(config.RegionURLs[i])
 				if err != nil {
-					fmt.Println("Error connecting to Region, context:", i)
+					fmt.Println("Error connecting to Region, context:", i+1)
 				} else {
 					extBlockClient.regionAvailable = true
 					extBlockClient.regionClient = regionClient

@@ -21,9 +21,8 @@ go build -o ./build/bin/manager manager/main.go
 
 ## Configure mining endpoints
 To configure the mining endpoints in which the manager will pull from:
-1. Copy the config.yaml.dist into a config.yaml file.
-2. Edit the endpoints to your choosing.
-3. Default is set to local node endpoints with default WebSocket endpoints for each node.
+1. Copy the config/config.yaml.dist into config/config.yaml.
+2. Edit the endpoints to your choosing. Default is set to local node endpoints with default WebSocket endpoints for each node.
 
 
 ## Run the manager

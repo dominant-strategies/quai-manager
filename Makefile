@@ -13,3 +13,12 @@ quai-manager:
 
 run:
 	./build/bin/manager  
+
+run-background:
+ifeq (,$(wildcard logs))
+	mkdir logs
+endif
+	@nohup ./build/bin/manager > logs/manager.log 2>&1 &
+
+stop:
+	pkill -f './build/bin/manager'
