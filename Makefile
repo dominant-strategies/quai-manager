@@ -7,18 +7,18 @@ GO ?= latest
 GORUN = env GO111MODULE=on go run
 
 quai-manager:
-	go build -o ./build/bin/manager manager/main.go     
+	go build -o ./build/bin/manager manager/main.go  
 	@echo "Done building."
 	@echo "Run \"$(GOBIN)/manager\" to launch quai-manager"
 
 run:
-	./build/bin/manager  
+	./build/bin/manager $(region) $(zone)
 
 run-background:
 ifeq (,$(wildcard logs))
 	mkdir logs
 endif
-	@nohup ./build/bin/manager > logs/manager.log 2>&1 &
+	@nohup ./build/bin/manager $(region) $(zone) > logs/manager.log 2>&1 &
 
 stop:
 	pkill -f './build/bin/manager'
