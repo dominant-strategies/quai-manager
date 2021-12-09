@@ -18,7 +18,7 @@ run-background:
 ifeq (,$(wildcard logs))
 	mkdir logs
 endif
-	@nohup ./build/bin/manager $(region) $(zone) > logs/manager.log 2>&1 &
+	@nohup ./build/bin/manager $(region) $(zone) >> logs/manager.log 2>&1 &
 
 stop:
 	pkill -f './build/bin/manager'
