@@ -21,4 +21,5 @@ endif
 	@nohup ./build/bin/manager $(region) $(zone) >> logs/manager.log 2>&1 &
 
 stop:
-	pkill -f './build/bin/manager'
+	@if pgrep -f ./build/bin/manager; then pkill -f ./build/bin/manager; fi
+	@echo "Stopping all instances of quai-manager"
