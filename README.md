@@ -34,6 +34,10 @@ Run via Makefile
 ```shell
 make run region=1 zone=2
 ```
+To run the manager in background and save the logs
+```
+make run-background region=1 zone=2
+```
 
 ### Set
 
