@@ -259,20 +259,42 @@ func getExtClients(config util.Config) []*extBlockClient {
 // subscribePendingHeader subscribes to the head of the mining nodes in order to pass
 // the most up to date block to the miner within the manager.
 func (m *Manager) subscribePendingHeader(sliceIndex int) {
-	// Wait for chain events and push them to clients
-	header := make(chan *types.Header)
-	sub, err := m.miningClients[sliceIndex].SubscribePendingBlock(context.Background(), header)
-	if err != nil {
-		log.Fatal("Failed to subscribe to pending block events", err)
-	}
-	defer sub.Unsubscribe()
+	// check the status of the sync
+	checkSync, err := m.miningClients[sliceIndex].SyncProgress(context.Background())
 
-	// Wait for various events and assing to the appropriate background threads
-	for {
-		select {
-		case <-header:
-			// New head arrived, send if for state update if there's none running
-			m.fetchPendingBlocks(sliceIndex)
+	if err != nil {
+		switch sliceIndex {
+		case 0:
+			fmt.Println("Error occured while synching to Prime")
+		case 1:
+			fmt.Println("Error occured while synching to Region")
+		case 2:
+			fmt.Println("Error occured while synching to Zone")
+		}
+	}
+
+	// wait until sync is nil to continue
+	for checkSync != nil && err == nil {
+		checkSync, err = m.miningClients[sliceIndex].SyncProgress(context.Background())
+	}
+
+	// subscribe to the pending block only if not synching
+	if checkSync == nil && err == nil {
+		// Wait for chain events and push them to clients
+		header := make(chan *types.Header)
+		sub, err := m.miningClients[sliceIndex].SubscribePendingBlock(context.Background(), header)
+		if err != nil {
+			log.Fatal("Failed to subscribe to pending block events", err)
+		}
+		defer sub.Unsubscribe()
+
+		// Wait for various events and assing to the appropriate background threads
+		for {
+			select {
+			case <-header:
+				// New head arrived, send if for state update if there's none running
+				m.fetchPendingBlocks(sliceIndex)
+			}
 		}
 	}
 }
