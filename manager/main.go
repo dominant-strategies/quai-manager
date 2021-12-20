@@ -287,6 +287,25 @@ func (m *Manager) fetchPendingBlocks(sliceIndex int) {
 	m.lock.Lock()
 	receiptBlock, err = m.miningClients[sliceIndex].GetPendingBlock(context.Background())
 
+	// check for stale headers and refetch the latest header
+	if receiptBlock.Header().Number[sliceIndex] == m.combinedHeader.Number[sliceIndex] && err == nil {
+		switch sliceIndex {
+		case 0:
+			fmt.Println("Extected header numbers don't match for Prime at block height", receiptBlock.Header().Number[0])
+			fmt.Println("Retrying and attempting to fetch the latest header for Prime")
+			receiptBlock, err = m.miningClients[0].GetPendingBlock(context.Background())
+		case 1:
+			fmt.Println("Extected header numbers don't match for Region at block height", receiptBlock.Header().Number[1])
+			fmt.Println("Retrying and attempting to fetch the latest header for Region")
+			receiptBlock, err = m.miningClients[1].GetPendingBlock(context.Background())
+		case 2:
+			fmt.Println("Extected header numbers don't match for Zone at block height", receiptBlock.Header().Number[2])
+			fmt.Println("Retrying and attempting to fetch the latest header for Zone")
+			receiptBlock, err = m.miningClients[2].GetPendingBlock(context.Background())
+		}
+	}
+
+	// retrying for 5 times if pending block not found
 	if err != nil {
 		fmt.Println("Pending block not found for index:", sliceIndex, "error:", err)
 
