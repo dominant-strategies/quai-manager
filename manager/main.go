@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"encoding/binary"
+	"errors"
 	"fmt"
 	"log"
 	"math/big"
@@ -425,6 +426,24 @@ func (m *Manager) loopGlobalBlock() error {
 	}
 }
 
+// check if the header is null. If so, don't start mining.
+func (m *Manager) headerNullCheck() error {
+	err := errors.New("header has nil value, cannot continue with mining")
+	if m.combinedHeader.Number[0] == nil {
+		fmt.Println("Header for the Prime is nil, waiting for the Prime header to start mining")
+		return err
+	}
+	if m.combinedHeader.Number[1] == nil {
+		fmt.Println("Header for the Region is nil, waiting for the Region header to start mining")
+		return err
+	}
+	if m.combinedHeader.Number[2] == nil {
+		fmt.Println("Header for the Zone is nil, waiting for the Zone header to start mining")
+		return err
+	}
+	return nil
+}
+
 // miningLoop iterates on a new header and passes the result to m.resultCh. The result is called within the method.
 func (m *Manager) miningLoop() error {
 	var (
@@ -450,8 +469,12 @@ func (m *Manager) miningLoop() error {
 			// Reduce race conditions while sending mined blocks and waiting for pending headers
 			m.lock.Lock()
 			m.lock.Unlock()
-			if err := m.engine.MergedMineSeal(header, m.resultCh, stopCh); err != nil {
-				fmt.Println("Block sealing failed", "err", err)
+
+			headerNull := m.headerNullCheck()
+			if headerNull == nil {
+				if err := m.engine.MergedMineSeal(header, m.resultCh, stopCh); err != nil {
+					fmt.Println("Block sealing failed", "err", err)
+				}
 			}
 		}
 	}
