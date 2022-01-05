@@ -34,7 +34,9 @@ Run via Makefile
 ```shell
 make run region=1 zone=2
 ```
+
 To run the manager in background and save the logs
+
 ```
 make run-background region=1 zone=2
 ```
@@ -45,4 +47,10 @@ Run via Go binary
 
 ```shell
 ./build/bin/manager 1 2
+```
+
+## Stopping the manager
+
+```shell
+make stop
 ```
