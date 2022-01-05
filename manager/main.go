@@ -492,7 +492,6 @@ func (m *Manager) SubmitHashRate() {
 			select {
 			case <-ticker.C:
 				hashRate := m.engine.Hashrate()
-				fmt.Println(hashRate)
 				if hashRate != null {
 					m.engine.SubmitHashrate(hexutil.Uint64(hashRate), id)
 				}
