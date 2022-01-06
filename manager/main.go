@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"log"
 	"math/big"
+	"math/rand"
 	"os"
 	"strconv"
 	"sync"
@@ -485,7 +486,13 @@ func (m *Manager) miningLoop() error {
 // WatchHashRate is a simple method to watch the hashrate of our miner and log the output.
 func (m *Manager) SubmitHashRate() {
 	ticker := time.NewTicker(10 * time.Second)
-	id := crypto.Keccak256Hash([]byte("3"))
+
+	// generating random ID to submit in the SubmitHashRate method
+	randomId := rand.Int()
+	randomIdArray := make([]byte, 8)
+	binary.LittleEndian.PutUint64(randomIdArray, uint64(randomId))
+	id := crypto.Keccak256Hash(randomIdArray)
+
 	var null float64 = 0
 	go func() {
 		for {
