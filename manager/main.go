@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"log"
 	"math/big"
+	"math/rand"
 	"os"
 	"strconv"
 	"sync"
@@ -15,8 +16,10 @@ import (
 	"github.com/gorilla/websocket"
 	lru "github.com/hashicorp/golang-lru"
 	"github.com/spruce-solutions/go-quai/common"
+	"github.com/spruce-solutions/go-quai/common/hexutil"
 	"github.com/spruce-solutions/go-quai/consensus/ethash"
 	"github.com/spruce-solutions/go-quai/core/types"
+	"github.com/spruce-solutions/go-quai/crypto"
 	"github.com/spruce-solutions/go-quai/ethclient"
 	"github.com/spruce-solutions/go-quai/params"
 	"github.com/spruce-solutions/quai-manager/manager/util"
@@ -161,7 +164,7 @@ func main() {
 
 	go m.miningLoop()
 
-	// go m.WatchHashRate()
+	go m.SubmitHashRate()
 
 	go m.loopGlobalBlock()
 
@@ -481,13 +484,24 @@ func (m *Manager) miningLoop() error {
 }
 
 // WatchHashRate is a simple method to watch the hashrate of our miner and log the output.
-func (m *Manager) WatchHashRate() {
+func (m *Manager) SubmitHashRate() {
 	ticker := time.NewTicker(10 * time.Second)
+
+	// generating random ID to submit in the SubmitHashRate method
+	randomId := rand.Int()
+	randomIdArray := make([]byte, 8)
+	binary.LittleEndian.PutUint64(randomIdArray, uint64(randomId))
+	id := crypto.Keccak256Hash(randomIdArray)
+
+	var null float64 = 0
 	go func() {
 		for {
 			select {
 			case <-ticker.C:
-				fmt.Println("Current Hashrate", m.engine.Hashrate())
+				hashRate := m.engine.Hashrate()
+				if hashRate != null {
+					m.engine.SubmitHashrate(hexutil.Uint64(hashRate), id)
+				}
 			}
 		}
 	}()
