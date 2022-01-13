@@ -18,6 +18,7 @@ import (
 	"github.com/spruce-solutions/go-quai/common"
 	"github.com/spruce-solutions/go-quai/common/hexutil"
 	"github.com/spruce-solutions/go-quai/consensus/ethash"
+	"github.com/spruce-solutions/go-quai/core"
 	"github.com/spruce-solutions/go-quai/core/types"
 	"github.com/spruce-solutions/go-quai/crypto"
 	"github.com/spruce-solutions/go-quai/ethclient"
@@ -160,6 +161,8 @@ func main() {
 		}
 	}
 
+	go m.subscribeReOrg()
+
 	go m.resultLoop()
 
 	go m.miningLoop()
@@ -298,6 +301,58 @@ func (m *Manager) subscribePendingHeader(sliceIndex int) {
 			case <-header:
 				// New head arrived, send if for state update if there's none running
 				m.fetchPendingBlocks(sliceIndex)
+			}
+		}
+	}
+}
+
+// subscribe to the reorg notifications from all Prime and Region chians
+// subscribeReOrg subscribes to the reOrg events so that we can send the reorg
+// information to clients in lower contexts
+func (m *Manager) subscribeReOrg() {
+
+	prime := "prime"
+	regions := [3]string{"region1", "region2", "region3"}
+
+	// subscribe to the prime and region clients
+	subscribeReOrgClients(m.miningClients[0], m.miningAvailable[0], prime)
+	subscribeReOrgClients(m.miningClients[1], m.miningAvailable[1], regions[m.location[0]-1])
+
+	//subscribe to the regions from external contexts
+	for i := 0; i < len(m.availableClients); i++ {
+		if i != int(m.location[0]-1) {
+			subscribeReOrgClients(m.availableClients[i].regionClient, m.availableClients[i].regionAvailable, regions[i])
+		}
+	}
+}
+
+func subscribeReOrgClients(client *ethclient.Client, available bool, location string) {
+	reOrgData := make(chan core.ReOrgRollup)
+
+	if available {
+		sub, err := client.SubscribeReOrg(context.Background(), reOrgData)
+		if err != nil {
+			log.Fatal("Failed to subscribe to the reorg notifications in", location, err)
+		}
+		defer sub.Unsubscribe()
+	} else {
+		log.Fatal("Failed to subscribe to the reorg notifications in", location, "client is not active")
+	}
+
+	for {
+		select {
+		case <-reOrgData:
+			if location == "prime" {
+				fmt.Println("Reorg", reOrgData)
+			}
+			if location == "region1" {
+				fmt.Println("Reorg", reOrgData)
+			}
+			if location == "region2" {
+				fmt.Println("Reorg", reOrgData)
+			}
+			if location == "region3" {
+				fmt.Println("Reorg", reOrgData)
 			}
 		}
 	}
