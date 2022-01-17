@@ -315,20 +315,56 @@ func (m *Manager) subscribeReOrg() {
 	regions := [3]string{"region1", "region2", "region3"}
 
 	// subscribe to the prime and region clients
-	subscribeReOrgClients(m.miningClients[0], m.miningAvailable[0], prime)
-	subscribeReOrgClients(m.miningClients[1], m.miningAvailable[1], regions[m.location[0]-1])
+	subscribeReOrgClients(m.miningClients[0], m.miningAvailable[0], prime, 0)
+	subscribeReOrgClients(m.miningClients[1], m.miningAvailable[1], regions[m.location[0]-1], 1)
 
 	//subscribe to the regions from external contexts
 	for i := 0; i < len(m.availableClients); i++ {
 		if i != int(m.location[0]-1) {
-			subscribeReOrgClients(m.availableClients[i].regionClient, m.availableClients[i].regionAvailable, regions[i])
+			subscribeReOrgClients(m.availableClients[i].regionClient, m.availableClients[i].regionAvailable, regions[i], 1)
 		}
 	}
 }
 
-func subscribeReOrgClients(client *ethclient.Client, available bool, location string) {
-	reOrgData := make(chan core.ReOrgRollup)
+// checkNonceEmpty checks if any of the headers have empty nonce
+func checkNonceEmpty(commonHead *types.Header, oldChain, newChain []*types.Header) bool {
+	if commonHead.Nonce == (types.BlockNonce{}) {
+		return false
+	}
 
+	for i := 0; i < len(oldChain); i++ {
+		if oldChain[i].Nonce == (types.BlockNonce{}) {
+			return false
+		}
+	}
+	for i := 0; i < len(newChain); i++ {
+		if newChain[i].Nonce == (types.BlockNonce{}) {
+			return false
+		}
+	}
+	return true
+}
+
+// compareDifficulty compares 2 chains and returns true if the newChain is heavier
+// than the oldChain and false otherwise
+func compareDifficulty(commonHead *types.Header, oldChain, newChain []*types.Header, difficultyContext int) bool {
+
+	oldChainDifficulty := big.NewInt(0)
+	newChainDifficulty := big.NewInt(0)
+
+	nonceEmpty := checkNonceEmpty(commonHead, oldChain, newChain)
+
+	for i := 0; i < len(oldChain); i++ {
+		oldChainDifficulty.Add(oldChainDifficulty, oldChain[i].Difficulty[difficultyContext])
+	}
+	for i := 0; i < len(newChain); i++ {
+		newChainDifficulty.Add(newChainDifficulty, newChain[i].Difficulty[difficultyContext])
+	}
+	return newChainDifficulty.Cmp(oldChainDifficulty) > 0 && nonceEmpty
+}
+
+func subscribeReOrgClients(client *ethclient.Client, available bool, location string, difficultyContext int) {
+	reOrgData := make(chan core.ReOrgRollup, 1)
 	if available {
 		sub, err := client.SubscribeReOrg(context.Background(), reOrgData)
 		if err != nil {
@@ -341,18 +377,21 @@ func subscribeReOrgClients(client *ethclient.Client, available bool, location st
 
 	for {
 		select {
-		case <-reOrgData:
-			if location == "prime" {
-				fmt.Println("Reorg", reOrgData)
-			}
-			if location == "region1" {
-				fmt.Println("Reorg", reOrgData)
-			}
-			if location == "region2" {
-				fmt.Println("Reorg", reOrgData)
-			}
-			if location == "region3" {
-				fmt.Println("Reorg", reOrgData)
+		case reOrgData := <-reOrgData:
+			heavier := compareDifficulty(reOrgData.ReOrgHeader, reOrgData.OldChainHeaders, reOrgData.NewChainHeaders, difficultyContext)
+			if heavier {
+				if location == "prime" {
+					fmt.Println("Reorg", reOrgData)
+				}
+				if location == "region1" {
+					fmt.Println("Reorg", reOrgData)
+				}
+				if location == "region2" {
+					fmt.Println("Reorg", reOrgData)
+				}
+				if location == "region3" {
+					fmt.Println("Reorg", reOrgData)
+				}
 			}
 		}
 	}
