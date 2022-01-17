@@ -315,13 +315,13 @@ func (m *Manager) subscribeReOrg() {
 	regions := [3]string{"region1", "region2", "region3"}
 
 	// subscribe to the prime and region clients
-	subscribeReOrgClients(m.miningClients[0], m.miningAvailable[0], prime, 0)
-	subscribeReOrgClients(m.miningClients[1], m.miningAvailable[1], regions[m.location[0]-1], 1)
+	m.subscribeReOrgClients(m.miningClients[0], m.miningAvailable[0], prime, 0)
+	m.subscribeReOrgClients(m.miningClients[1], m.miningAvailable[1], regions[m.location[0]-1], 1)
 
 	//subscribe to the regions from external contexts
 	for i := 0; i < len(m.availableClients); i++ {
 		if i != int(m.location[0]-1) {
-			subscribeReOrgClients(m.availableClients[i].regionClient, m.availableClients[i].regionAvailable, regions[i], 1)
+			m.subscribeReOrgClients(m.availableClients[i].regionClient, m.availableClients[i].regionAvailable, regions[i], 1)
 		}
 	}
 }
@@ -363,7 +363,7 @@ func compareDifficulty(commonHead *types.Header, oldChain, newChain []*types.Hea
 	return newChainDifficulty.Cmp(oldChainDifficulty) > 0 && nonceEmpty
 }
 
-func subscribeReOrgClients(client *ethclient.Client, available bool, location string, difficultyContext int) {
+func (m *Manager) subscribeReOrgClients(client *ethclient.Client, available bool, location string, difficultyContext int) {
 	reOrgData := make(chan core.ReOrgRollup, 1)
 	if available {
 		sub, err := client.SubscribeReOrg(context.Background(), reOrgData)
@@ -381,20 +381,17 @@ func subscribeReOrgClients(client *ethclient.Client, available bool, location st
 			heavier := compareDifficulty(reOrgData.ReOrgHeader, reOrgData.OldChainHeaders, reOrgData.NewChainHeaders, difficultyContext)
 			if heavier {
 				if location == "prime" {
-					fmt.Println("Reorg", reOrgData)
-				}
-				if location == "region1" {
-					fmt.Println("Reorg", reOrgData)
-				}
-				if location == "region2" {
-					fmt.Println("Reorg", reOrgData)
-				}
-				if location == "region3" {
-					fmt.Println("Reorg", reOrgData)
+					m.sendReOrgHeader(reOrgData.ReOrgHeader, location, false)
+				} else {
+					m.sendReOrgHeader(reOrgData.ReOrgHeader, location, true)
 				}
 			}
 		}
 	}
+}
+
+func (m *Manager) sendReOrgHeader(header *types.Header, location string, isRegion bool) {
+
 }
 
 // fetchPendingBlocks gets the latest block when we have received a new pending header. This will get the receipts,
