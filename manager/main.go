@@ -380,18 +380,82 @@ func (m *Manager) subscribeReOrgClients(client *ethclient.Client, available bool
 		case reOrgData := <-reOrgData:
 			heavier := compareDifficulty(reOrgData.ReOrgHeader, reOrgData.OldChainHeaders, reOrgData.NewChainHeaders, difficultyContext)
 			if heavier {
-				if location == "prime" {
-					m.sendReOrgHeader(reOrgData.ReOrgHeader, location, false)
-				} else {
-					m.sendReOrgHeader(reOrgData.ReOrgHeader, location, true)
+				m.sendReOrgHeader(reOrgData.ReOrgHeader, location)
+			}
+		}
+	}
+}
+
+// sendReOrgHeader sends the reorg header to the respective region and zone clients
+func (m *Manager) sendReOrgHeader(header *types.Header, location string) {
+	regionLoc := int(m.location[0] - 1)
+	zoneLoc := int(m.location[1] - 1)
+	if location == "prime" {
+		// if the reorg event takes palce in prime then have to send the header to all
+		// the chains except for prime
+		// First send to the mining region and zone
+		if m.miningAvailable[1] {
+			m.miningClients[1].SendReOrgData(context.Background(), header)
+		}
+		if m.miningAvailable[2] {
+			m.miningClients[2].SendReOrgData(context.Background(), header)
+		}
+
+		//send to the external contexts
+		for i := 0; i < types.ContextDepth; i++ {
+			if i != regionLoc {
+				if m.availableClients[i].regionAvailable {
+					m.availableClients[i].regionClient.SendReOrgData(context.Background(), header)
+				}
+			}
+			// send to the zones
+			for j := 0; j < types.ContextDepth; j++ {
+				if i != regionLoc || j != zoneLoc {
+					if m.availableClients[i].zonesAvailable[j] {
+						m.availableClients[i].zoneClients[j].SendReOrgData(context.Background(), header)
+					}
+				}
+			}
+		}
+	} else {
+		// send to only the respective zones
+		reorgLocation := getRegionIndex(location)
+		if reorgLocation == regionLoc {
+			// send to the zone chain in the mining client and send to two other chains in the external clients
+			if m.miningAvailable[2] {
+				m.miningClients[2].SendReOrgData(context.Background(), header)
+
+			}
+			for j := 0; j < types.ContextDepth; j++ {
+				if j != zoneLoc {
+					if m.availableClients[reorgLocation].zonesAvailable[j] {
+						m.availableClients[reorgLocation].zoneClients[j].SendReOrgData(context.Background(), header)
+					}
+				}
+			}
+			// if the reorgLocation is not equal to the mining region Location
+		} else {
+			for j := 0; j < types.ContextDepth; j++ {
+				if m.availableClients[reorgLocation].zonesAvailable[j] {
+					m.availableClients[reorgLocation].zoneClients[j].SendReOrgData(context.Background(), header)
 				}
 			}
 		}
 	}
 }
 
-func (m *Manager) sendReOrgHeader(header *types.Header, location string, isRegion bool) {
-
+// getRegionIndex returns the location index of the reorgLocation
+func getRegionIndex(location string) int {
+	if location == "region1" {
+		return 0
+	}
+	if location == "region2" {
+		return 1
+	}
+	if location == "region3" {
+		return 2
+	}
+	return -1
 }
 
 // fetchPendingBlocks gets the latest block when we have received a new pending header. This will get the receipts,
