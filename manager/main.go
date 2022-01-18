@@ -347,7 +347,7 @@ func checkNonceEmpty(commonHead *types.Header, oldChain, newChain []*types.Heade
 
 // compareDifficulty compares 2 chains and returns true if the newChain is heavier
 // than the oldChain and false otherwise
-func compareDifficulty(commonHead *types.Header, oldChain, newChain []*types.Header, difficultyContext int) bool {
+func compareReorgDifficulty(commonHead *types.Header, oldChain, newChain []*types.Header, difficultyContext int) bool {
 
 	oldChainDifficulty := big.NewInt(0)
 	newChainDifficulty := big.NewInt(0)
@@ -378,7 +378,7 @@ func (m *Manager) subscribeReOrgClients(client *ethclient.Client, available bool
 	for {
 		select {
 		case reOrgData := <-reOrgData:
-			heavier := compareDifficulty(reOrgData.ReOrgHeader, reOrgData.OldChainHeaders, reOrgData.NewChainHeaders, difficultyContext)
+			heavier := compareReorgDifficulty(reOrgData.ReOrgHeader, reOrgData.OldChainHeaders, reOrgData.NewChainHeaders, difficultyContext)
 			if heavier {
 				m.sendReOrgHeader(reOrgData.ReOrgHeader, location)
 			}
