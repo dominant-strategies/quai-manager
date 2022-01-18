@@ -372,7 +372,7 @@ func (m *Manager) subscribeReOrgClients(client *ethclient.Client, available bool
 		}
 		defer sub.Unsubscribe()
 	} else {
-		log.Fatal("Failed to subscribe to the reorg notifications in", location, "client is not active")
+		log.Fatal("Failed to subscribe to the reorg notifications in", location, "client is not available")
 	}
 
 	for {
