@@ -78,7 +78,9 @@ func main() {
 		log.Fatal("cannot load config:", err)
 	}
 
-	location := os.Args[1:]
+	location := os.Args[1:3]
+
+	mine, _ := strconv.Atoi(os.Args[3:][0])
 
 	if len(location) == 0 {
 		log.Fatal("Please mention the location where you want to mine")
@@ -154,28 +156,30 @@ func main() {
 		location:             config.Location,
 	}
 
-	fmt.Println("Starting manager in location ", config.Location)
-	for i := 0; i < len(m.miningClients); i++ {
-		if m.miningAvailable[i] {
-			go m.subscribePendingHeader(i)
-		}
-	}
-
 	go m.subscribeNewHead()
 
 	go m.subscribeReOrg()
 
-	go m.resultLoop()
+	if mine == 1 {
+		fmt.Println("Starting manager in location ", config.Location)
+		for i := 0; i < len(m.miningClients); i++ {
+			if m.miningAvailable[i] {
+				go m.subscribePendingHeader(i)
+			}
+		}
 
-	go m.miningLoop()
+		go m.resultLoop()
 
-	go m.SubmitHashRate()
+		go m.miningLoop()
 
-	go m.loopGlobalBlock()
+		go m.SubmitHashRate()
 
-	for i := 0; i < len(m.miningClients); i++ {
-		if m.miningAvailable[i] {
-			m.fetchPendingBlocks(i)
+		go m.loopGlobalBlock()
+
+		for i := 0; i < len(m.miningClients); i++ {
+			if m.miningAvailable[i] {
+				m.fetchPendingBlocks(i)
+			}
 		}
 	}
 	<-exit
