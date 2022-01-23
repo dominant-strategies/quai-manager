@@ -354,11 +354,25 @@ func (m *Manager) subscribeNewHeadClient(client *ethclient.Client, available boo
 			fmt.Println("Retrieved new head", "hash", newHead.Hash())
 			block, err := client.BlockByHash(context.Background(), newHead.Hash())
 			if err != nil {
-				log.Fatal("Failed to retrieve block for hash", "hash", newHead.Hash())
+				fmt.Println("Failed to retrieve block for hash", "hash", newHead.Hash())
+
+				// wait for a second before retry
+				time.Sleep(time.Second)
+				block, err = client.BlockByHash(context.Background(), newHead.Hash())
+				if err != nil {
+					log.Fatal("Failed to retrieve block for hash", "hash", newHead.Hash())
+				}
 			}
 			receiptBlock, receiptErr := client.GetBlockReceipts(context.Background(), newHead.Hash())
 			if receiptErr != nil {
-				log.Fatal("Failed to retrieve receipts for block", "hash", newHead.Hash())
+				fmt.Println("Failed to retrieve receipts for block", "hash", newHead.Hash())
+
+				// wait for a second before retry
+				time.Sleep(time.Second)
+				receiptBlock, receiptErr = client.GetBlockReceipts(context.Background(), newHead.Hash())
+				if receiptErr != nil {
+					log.Fatal("Failed to retrieve receipts for block", "hash", newHead.Hash())
+				}
 			}
 			if difficultyContext == 0 {
 				m.SendClientsExtBlock(int64(difficultyContext), []int{1, 2}, block, receiptBlock)
