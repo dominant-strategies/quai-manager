@@ -18,6 +18,7 @@ import (
 	"github.com/spruce-solutions/go-quai/common"
 	"github.com/spruce-solutions/go-quai/common/hexutil"
 	"github.com/spruce-solutions/go-quai/consensus/ethash"
+	"github.com/spruce-solutions/go-quai/core"
 	"github.com/spruce-solutions/go-quai/core/types"
 	"github.com/spruce-solutions/go-quai/crypto"
 	"github.com/spruce-solutions/go-quai/ethclient"
@@ -160,6 +161,10 @@ func main() {
 		}
 	}
 
+	go m.subscribeNewHead()
+
+	go m.subscribeReOrg()
+
 	go m.resultLoop()
 
 	go m.miningLoop()
@@ -301,6 +306,215 @@ func (m *Manager) subscribePendingHeader(sliceIndex int) {
 			}
 		}
 	}
+}
+
+// subscribeNewHead passes new head blocks as external blocks to lower level chains.
+func (m *Manager) subscribeNewHead() {
+
+	prime := "prime"
+	regions := [3]string{"region1", "region2", "region3"}
+
+	// subscribe to the prime and region clients
+	m.subscribeNewHeadClient(m.miningClients[0], m.miningAvailable[0], prime, 0)
+	m.subscribeNewHeadClient(m.miningClients[1], m.miningAvailable[1], regions[m.location[0]-1], 1)
+
+	// Send external block to nodes outside of slice, first check if available then send.
+	for i := 0; i < len(m.availableClients); i++ {
+		m.subscribeNewHeadClient(m.availableClients[i].regionClient, m.availableClients[i].regionAvailable, regions[i], 1)
+	}
+
+	//subscribe to the regions from external contexts
+	for i := 0; i < len(m.availableClients); i++ {
+		if i != int(m.location[0]-1) {
+			m.subscribeNewHeadClient(m.availableClients[i].regionClient, m.availableClients[i].regionAvailable, regions[i], 1)
+		}
+	}
+}
+
+func (m *Manager) subscribeNewHeadClient(client *ethclient.Client, available bool, location string, difficultyContext int) {
+	newHeadChannel := make(chan *types.Header, 1)
+	if available {
+		sub, err := client.SubscribeNewHead(context.Background(), newHeadChannel)
+		if err != nil {
+			log.Fatal("Failed to subscribe to the reorg notifications in", location, err)
+		}
+		defer sub.Unsubscribe()
+	} else {
+		log.Fatal("Failed to subscribe to the reorg notifications in", location, "client is not available")
+	}
+
+	for {
+		select {
+		case newHead := <-newHeadChannel:
+			// get the block and receipt block
+			fmt.Println("Retrieved new head", "hash", newHead.Hash())
+			block, err := client.BlockByHash(context.Background(), newHead.Hash())
+			if err != nil {
+				log.Fatal("Failed to retrieve block for hash", "hash", newHead.Hash())
+			}
+			receiptBlock, receiptErr := client.GetBlockReceipts(context.Background(), newHead.Hash())
+			if receiptErr != nil {
+				log.Fatal("Failed to retrieve receipts for block", "hash", newHead.Hash())
+			}
+			if difficultyContext == 0 {
+				m.SendClientsExtBlock(int64(difficultyContext), []int{1, 2}, block, receiptBlock)
+			} else if difficultyContext == 1 {
+				m.SendClientsExtBlock(int64(difficultyContext), []int{2}, block, receiptBlock)
+			}
+		}
+	}
+}
+
+// subscribe to the reorg notifications from all Prime and Region chians
+// subscribeReOrg subscribes to the reOrg events so that we can send the reorg
+// information to clients in lower contexts
+func (m *Manager) subscribeReOrg() {
+
+	prime := "prime"
+	regions := [3]string{"region1", "region2", "region3"}
+
+	// subscribe to the prime and region clients
+	m.subscribeReOrgClients(m.miningClients[0], m.miningAvailable[0], prime, 0)
+	m.subscribeReOrgClients(m.miningClients[1], m.miningAvailable[1], regions[m.location[0]-1], 1)
+
+	//subscribe to the regions from external contexts
+	for i := 0; i < len(m.availableClients); i++ {
+		if i != int(m.location[0]-1) {
+			m.subscribeReOrgClients(m.availableClients[i].regionClient, m.availableClients[i].regionAvailable, regions[i], 1)
+		}
+	}
+}
+
+// checkNonceEmpty checks if any of the headers have empty nonce
+func checkNonceEmpty(commonHead *types.Header, oldChain, newChain []*types.Header) bool {
+	if commonHead.Nonce == (types.BlockNonce{}) {
+		return false
+	}
+
+	for i := 0; i < len(oldChain); i++ {
+		if oldChain[i].Nonce == (types.BlockNonce{}) {
+			return false
+		}
+	}
+	for i := 0; i < len(newChain); i++ {
+		if newChain[i].Nonce == (types.BlockNonce{}) {
+			return false
+		}
+	}
+	return true
+}
+
+// compareDifficulty compares 2 chains and returns true if the newChain is heavier
+// than the oldChain and false otherwise
+func compareReorgDifficulty(commonHead *types.Header, oldChain, newChain []*types.Header, difficultyContext int) bool {
+
+	oldChainDifficulty := big.NewInt(0)
+	newChainDifficulty := big.NewInt(0)
+
+	nonceEmpty := checkNonceEmpty(commonHead, oldChain, newChain)
+
+	for i := 0; i < len(oldChain); i++ {
+		oldChainDifficulty.Add(oldChainDifficulty, oldChain[i].Difficulty[difficultyContext])
+	}
+	for i := 0; i < len(newChain); i++ {
+		newChainDifficulty.Add(newChainDifficulty, newChain[i].Difficulty[difficultyContext])
+	}
+	return newChainDifficulty.Cmp(oldChainDifficulty) > 0 && nonceEmpty
+}
+
+func (m *Manager) subscribeReOrgClients(client *ethclient.Client, available bool, location string, difficultyContext int) {
+	reOrgData := make(chan core.ReOrgRollup, 1)
+	if available {
+		sub, err := client.SubscribeReOrg(context.Background(), reOrgData)
+		if err != nil {
+			log.Fatal("Failed to subscribe to the reorg notifications in", location, err)
+		}
+		defer sub.Unsubscribe()
+	} else {
+		log.Fatal("Failed to subscribe to the reorg notifications in", location, "client is not available")
+	}
+
+	for {
+		select {
+		case reOrgData := <-reOrgData:
+			heavier := compareReorgDifficulty(reOrgData.ReOrgHeader, reOrgData.OldChainHeaders, reOrgData.NewChainHeaders, difficultyContext)
+			if heavier {
+				m.sendReOrgHeader(reOrgData.NewChainHeaders[len(reOrgData.NewChainHeaders)-2], location)
+			}
+		}
+	}
+}
+
+// sendReOrgHeader sends the reorg header to the respective region and zone clients
+func (m *Manager) sendReOrgHeader(header *types.Header, location string) {
+	regionLoc := int(m.location[0] - 1)
+	zoneLoc := int(m.location[1] - 1)
+	if location == "prime" {
+		// if the reorg event takes palce in prime then have to send the header to all
+		// the chains except for prime
+		// First send to the mining region and zone
+		if m.miningAvailable[1] {
+			m.miningClients[1].SendReOrgData(context.Background(), header)
+		}
+		if m.miningAvailable[2] {
+			m.miningClients[2].SendReOrgData(context.Background(), header)
+		}
+
+		//send to the external contexts
+		for i := 0; i < types.ContextDepth; i++ {
+			if i != regionLoc {
+				if m.availableClients[i].regionAvailable {
+					m.availableClients[i].regionClient.SendReOrgData(context.Background(), header)
+				}
+			}
+			// send to the zones
+			for j := 0; j < types.ContextDepth; j++ {
+				if i != regionLoc || j != zoneLoc {
+					if m.availableClients[i].zonesAvailable[j] {
+						m.availableClients[i].zoneClients[j].SendReOrgData(context.Background(), header)
+					}
+				}
+			}
+		}
+	} else {
+		// send to only the respective zones
+		reorgLocation := getRegionIndex(location)
+		if reorgLocation == regionLoc {
+			// send to the zone chain in the mining client and send to two other chains in the external clients
+			if m.miningAvailable[2] {
+				m.miningClients[2].SendReOrgData(context.Background(), header)
+
+			}
+			for j := 0; j < types.ContextDepth; j++ {
+				if j != zoneLoc {
+					if m.availableClients[reorgLocation].zonesAvailable[j] {
+						m.availableClients[reorgLocation].zoneClients[j].SendReOrgData(context.Background(), header)
+					}
+				}
+			}
+			// if the reorgLocation is not equal to the mining region Location
+		} else {
+			for j := 0; j < types.ContextDepth; j++ {
+				if m.availableClients[reorgLocation].zonesAvailable[j] {
+					m.availableClients[reorgLocation].zoneClients[j].SendReOrgData(context.Background(), header)
+				}
+			}
+		}
+	}
+}
+
+// getRegionIndex returns the location index of the reorgLocation
+func getRegionIndex(location string) int {
+	if location == "region1" {
+		return 0
+	}
+	if location == "region2" {
+		return 1
+	}
+	if location == "region3" {
+		return 2
+	}
+	return -1
 }
 
 // fetchPendingBlocks gets the latest block when we have received a new pending header. This will get the receipts,
@@ -532,11 +746,11 @@ func (m *Manager) resultLoop() error {
 			if bundle.Context == 0 && header.Number[0] != nil {
 				var wg sync.WaitGroup
 				wg.Add(1)
-				go m.SendClientsExtBlock(0, []int{1, 2}, header, &wg)
+				go m.SendClientsMinedExtBlock(0, []int{1, 2}, header, &wg)
 				wg.Add(1)
-				go m.SendClientsExtBlock(1, []int{0, 2}, header, &wg)
+				go m.SendClientsMinedExtBlock(1, []int{0, 2}, header, &wg)
 				wg.Add(1)
-				go m.SendClientsExtBlock(2, []int{0, 1}, header, &wg)
+				go m.SendClientsMinedExtBlock(2, []int{0, 1}, header, &wg)
 				wg.Wait()
 				wg.Add(1)
 				go m.SendMinedBlock(2, header, &wg)
@@ -551,9 +765,9 @@ func (m *Manager) resultLoop() error {
 			if bundle.Context == 1 && header.Number[1] != nil {
 				var wg sync.WaitGroup
 				wg.Add(1)
-				go m.SendClientsExtBlock(1, []int{0, 2}, header, &wg)
+				go m.SendClientsMinedExtBlock(1, []int{0, 2}, header, &wg)
 				wg.Add(1)
-				go m.SendClientsExtBlock(2, []int{0, 1}, header, &wg)
+				go m.SendClientsMinedExtBlock(2, []int{0, 1}, header, &wg)
 				wg.Wait()
 				wg.Add(1)
 				go m.SendMinedBlock(2, header, &wg)
@@ -566,7 +780,7 @@ func (m *Manager) resultLoop() error {
 			if bundle.Context == 2 && header.Number[2] != nil {
 				var wg sync.WaitGroup
 				wg.Add(1)
-				go m.SendClientsExtBlock(2, []int{0, 1}, header, &wg)
+				go m.SendClientsMinedExtBlock(2, []int{0, 1}, header, &wg)
 				wg.Wait()
 				wg.Add(1)
 				go m.SendMinedBlock(2, header, &wg)
@@ -577,33 +791,36 @@ func (m *Manager) resultLoop() error {
 	}
 }
 
-// SendClientsExtBlock takes in the mined block and the contexts of the mining slice to send the external block to.
-// ex. mined 2, externalContexts []int{0, 1} will send the Zone external block to Prime and Region.
-func (m *Manager) SendClientsExtBlock(mined int64, externalContexts []int, header *types.Header, wg *sync.WaitGroup) {
+// SendClientsMinedExtBlock takes in the mined block and calls the pending blocks to send to the clients.
+func (m *Manager) SendClientsMinedExtBlock(mined int64, externalContexts []int, header *types.Header, wg *sync.WaitGroup) {
 	receiptBlock := m.pendingBlocks[mined]
 	if receiptBlock != nil {
 		block := types.NewBlockWithHeader(header).WithBody(receiptBlock.Transactions(), receiptBlock.Uncles())
+		m.SendClientsExtBlock(mined, externalContexts, block, receiptBlock)
+	}
+	defer wg.Done()
+}
 
-		// Send external block to nodes within slice.
-		for i := 0; i < len(externalContexts); i++ {
-			if m.miningAvailable[externalContexts[i]] {
-				m.miningClients[externalContexts[i]].SendExternalBlock(context.Background(), block, receiptBlock.Receipts(), big.NewInt(mined))
-			}
+// SendClientsExtBlock takes in the mined block and the contexts of the mining slice to send the external block to.
+// ex. mined 2, externalContexts []int{0, 1} will send the Zone external block to Prime and Region.
+func (m *Manager) SendClientsExtBlock(mined int64, externalContexts []int, block *types.Block, receiptBlock *types.ReceiptBlock) {
+	for i := 0; i < len(externalContexts); i++ {
+		if m.miningAvailable[externalContexts[i]] {
+			m.miningClients[externalContexts[i]].SendExternalBlock(context.Background(), block, receiptBlock.Receipts(), big.NewInt(mined))
 		}
+	}
 
-		// Send external block to nodes outside of slice, first check if available then send.
-		for i := 0; i < len(m.availableClients); i++ {
-			if m.availableClients[i].regionAvailable {
-				m.availableClients[i].regionClient.SendExternalBlock(context.Background(), block, receiptBlock.Receipts(), big.NewInt(mined))
-			}
-			for j := 0; j < len(m.availableClients[i].zonesAvailable); j++ {
-				if m.availableClients[i].zonesAvailable[j] {
-					m.availableClients[i].zoneClients[j].SendExternalBlock(context.Background(), block, receiptBlock.Receipts(), big.NewInt(mined))
-				}
+	// Send external block to nodes outside of slice, first check if available then send.
+	for i := 0; i < len(m.availableClients); i++ {
+		if m.availableClients[i].regionAvailable {
+			m.availableClients[i].regionClient.SendExternalBlock(context.Background(), block, receiptBlock.Receipts(), big.NewInt(mined))
+		}
+		for j := 0; j < len(m.availableClients[i].zonesAvailable); j++ {
+			if m.availableClients[i].zonesAvailable[j] {
+				m.availableClients[i].zoneClients[j].SendExternalBlock(context.Background(), block, receiptBlock.Receipts(), big.NewInt(mined))
 			}
 		}
 	}
-	defer wg.Done()
 }
 
 // SendMinedBlock sends the mined block to its mining client with the transactions, uncles, and receipts.

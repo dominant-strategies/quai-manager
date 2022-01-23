@@ -1,5 +1,6 @@
 module github.com/spruce-solutions/quai-manager
 
+replace github.com/spruce-solutions/go-quai => /Users/alan/code/go-quai
 go 1.16
 
 require (
