@@ -341,11 +341,11 @@ func (m *Manager) subscribeNewHeadClient(client *ethclient.Client, available boo
 	if available {
 		sub, err := client.SubscribeNewHead(context.Background(), newHeadChannel)
 		if err != nil {
-			log.Fatal("Failed to subscribe to the reorg notifications in", location, err)
+			log.Fatal("Failed to subscribe to the reorg notifications in ", location, err)
 		}
 		defer sub.Unsubscribe()
 	} else {
-		log.Fatal("Failed to subscribe to the reorg notifications in", location, "client is not available")
+		log.Fatal("Failed to subscribe to the reorg notifications in ", location, "client is not available")
 	}
 
 	for {
@@ -355,7 +355,7 @@ func (m *Manager) subscribeNewHeadClient(client *ethclient.Client, available boo
 			fmt.Println("Retrieved new head", "hash", newHead.Hash())
 			block, err := client.BlockByHash(context.Background(), newHead.Hash())
 			if err != nil {
-				fmt.Println("Failed to retrieve block for hash", "hash", newHead.Hash())
+				fmt.Println("Failed to retrieve block for hash", "hash ", newHead.Hash())
 
 				for i := 0; ; i++ {
 					block, err = client.BlockByHash(context.Background(), newHead.Hash())
@@ -364,11 +364,11 @@ func (m *Manager) subscribeNewHeadClient(client *ethclient.Client, available boo
 					}
 
 					if i >= retryAttempts {
-						fmt.Println("Failed to retrieve block for hash ", "hash", newHead.Hash(), " even after ", retryAttempts, " retry attempts ")
+						fmt.Println("Failed to retrieve block for hash ", "hash ", newHead.Hash(), " even after ", retryAttempts, " retry attempts ")
 						return
 					}
 
-					time.Sleep(3 * time.Second)
+					time.Sleep(time.Second)
 
 					fmt.Println("Retry attempt:", i+1, "Failed to retrieve block for hash ", "hash", newHead.Hash())
 				}
@@ -388,7 +388,7 @@ func (m *Manager) subscribeNewHeadClient(client *ethclient.Client, available boo
 						log.Fatal("Failed to retrieve receipts for block", "hash", newHead.Hash(), " even after ", retryAttempts, " retry attempts ")
 					}
 
-					time.Sleep(3 * time.Second)
+					time.Sleep(time.Second)
 
 					fmt.Println("Retry attempt:", i+1, "Failed to retrieve receipts for block", "hash", newHead.Hash())
 				}
