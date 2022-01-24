@@ -337,6 +337,7 @@ func (m *Manager) subscribeNewHead() {
 
 func (m *Manager) subscribeNewHeadClient(client *ethclient.Client, available bool, location string, difficultyContext int) {
 	newHeadChannel := make(chan *types.Header, 1)
+	retryAttempts := 5
 	if available {
 		sub, err := client.SubscribeNewHead(context.Background(), newHeadChannel)
 		if err != nil {
@@ -354,12 +355,45 @@ func (m *Manager) subscribeNewHeadClient(client *ethclient.Client, available boo
 			fmt.Println("Retrieved new head", "hash", newHead.Hash())
 			block, err := client.BlockByHash(context.Background(), newHead.Hash())
 			if err != nil {
-				log.Fatal("Failed to retrieve block for hash", "hash", newHead.Hash())
+				fmt.Println("Failed to retrieve block for hash", "hash", newHead.Hash())
+
+				for i := 0; ; i++ {
+					block, err = client.BlockByHash(context.Background(), newHead.Hash())
+					if err == nil {
+						break
+					}
+
+					if i >= retryAttempts {
+						fmt.Println("Failed to retrieve block for hash ", "hash", newHead.Hash(), " even after ", retryAttempts, " retry attempts ")
+						return
+					}
+
+					time.Sleep(time.Second)
+
+					fmt.Println("Retry attempt:", i+1, "Failed to retrieve block for hash ", "hash", newHead.Hash())
+				}
 			}
+
 			receiptBlock, receiptErr := client.GetBlockReceipts(context.Background(), newHead.Hash())
 			if receiptErr != nil {
-				log.Fatal("Failed to retrieve receipts for block", "hash", newHead.Hash())
+				fmt.Println("Failed to retrieve receipts for block", "hash", newHead.Hash())
+
+				for i := 0; ; i++ {
+					receiptBlock, receiptErr = client.GetBlockReceipts(context.Background(), newHead.Hash())
+					if receiptErr == nil {
+						break
+					}
+
+					if i >= retryAttempts {
+						log.Fatal("Failed to retrieve receipts for block", "hash", newHead.Hash(), " even after ", retryAttempts, " retry attempts ")
+					}
+
+					time.Sleep(time.Second)
+
+					fmt.Println("Retry attempt:", i+1, "Failed to retrieve receipts for block", "hash", newHead.Hash())
+				}
 			}
+
 			if difficultyContext == 0 {
 				m.SendClientsExtBlock(int64(difficultyContext), []int{1, 2}, block, receiptBlock)
 			} else if difficultyContext == 1 {
