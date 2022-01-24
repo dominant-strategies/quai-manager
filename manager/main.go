@@ -368,7 +368,7 @@ func (m *Manager) subscribeNewHeadClient(client *ethclient.Client, available boo
 						return
 					}
 
-					time.Sleep(time.Second)
+					time.Sleep(3 * time.Second)
 
 					fmt.Println("Retry attempt:", i+1, "Failed to retrieve block for hash ", "hash", newHead.Hash())
 				}
@@ -388,7 +388,7 @@ func (m *Manager) subscribeNewHeadClient(client *ethclient.Client, available boo
 						log.Fatal("Failed to retrieve receipts for block", "hash", newHead.Hash(), " even after ", retryAttempts, " retry attempts ")
 					}
 
-					time.Sleep(time.Second)
+					time.Sleep(3 * time.Second)
 
 					fmt.Println("Retry attempt:", i+1, "Failed to retrieve receipts for block", "hash", newHead.Hash())
 				}
