@@ -3,10 +3,8 @@ module github.com/spruce-solutions/quai-manager
 go 1.16
 
 require (
-	github.com/bketelsen/crypt v0.0.4 // indirect
 	github.com/gorilla/websocket v1.4.2
 	github.com/hashicorp/golang-lru v0.5.5-0.20210104140557-80c98217689d
-	github.com/smartystreets/goconvey v1.6.4 // indirect
 	github.com/spf13/viper v1.9.0
-	github.com/spruce-solutions/go-quai v0.0.0-20220123161201-157d3be1d052 // indirect
+	github.com/spruce-solutions/go-quai v0.0.0-20220129144332-766afb931762
 )
