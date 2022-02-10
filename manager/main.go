@@ -78,34 +78,36 @@ func main() {
 		log.Fatal("cannot load config:", err)
 	}
 
-	location := os.Args[1:3]
+	if len(os.Args) > 3 {
+		location := os.Args[1:3]
 
-	mine, _ := strconv.Atoi(os.Args[3:][0])
+		mine, _ := strconv.Atoi(os.Args[3:][0])
 
-	if len(location) == 0 {
-		log.Fatal("Please mention the location where you want to mine")
+		if len(location) == 0 {
+			log.Fatal("Please mention the location where you want to mine")
+		}
+
+		if len(location) == 1 {
+			log.Fatal("You are missing either the region or zone location")
+		}
+
+		if len(location) > 2 {
+			log.Fatal("Only specify 2 values for the location")
+		}
+
+		// converting region and zone location values from string to integer
+		regionLoc, _ := strconv.Atoi(location[0])
+		zoneLoc, _ := strconv.Atoi(location[1])
+
+		// converting the region and zone integer values to bytes
+		RegionLocArr := make([]byte, 8)
+		ZoneLocArr := make([]byte, 8)
+		binary.LittleEndian.PutUint64(RegionLocArr, uint64(regionLoc))
+		binary.LittleEndian.PutUint64(ZoneLocArr, uint64(zoneLoc))
+
+		config.Location = []byte{RegionLocArr[0], ZoneLocArr[0]}
+		config.Mine = mine == 1
 	}
-
-	if len(location) == 1 {
-		log.Fatal("You are missing either the region or zone location")
-	}
-
-	if len(location) > 2 {
-		log.Fatal("Only specify 2 values for the location")
-	}
-
-	// converting region and zone location values from string to integer
-	regionLoc, _ := strconv.Atoi(location[0])
-	zoneLoc, _ := strconv.Atoi(location[1])
-
-	// converting the region and zone integer values to bytes
-	RegionLocArr := make([]byte, 8)
-	ZoneLocArr := make([]byte, 8)
-	binary.LittleEndian.PutUint64(RegionLocArr, uint64(regionLoc))
-	binary.LittleEndian.PutUint64(ZoneLocArr, uint64(zoneLoc))
-
-	config.Location = []byte{RegionLocArr[0], ZoneLocArr[0]}
-
 	// Set mining clients and whether they are available or not.
 	miningClients, miningAvailable := getMiningClients(config)
 
@@ -160,7 +162,7 @@ func main() {
 
 	go m.subscribeReOrg()
 
-	if mine == 1 {
+	if config.Mine {
 		fmt.Println("Starting manager in location ", config.Location)
 		for i := 0; i < len(m.miningClients); i++ {
 			if m.miningAvailable[i] {
