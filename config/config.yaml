@@ -1,5 +1,5 @@
 # Config for node URLs
-Location: [2, 2]
+Location: [1, 1]
 Mine: true
 PrimeURL: "ws://127.0.0.1:8547"
 RegionURLs: ["ws://127.0.0.1:8579", "ws://127.0.0.1:8581", "ws://127.0.0.1:8583"]

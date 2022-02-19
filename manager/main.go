@@ -770,15 +770,15 @@ func (m *Manager) resultLoop() error {
 			header := bundle.Header
 
 			if bundle.Context == 0 {
-				fmt.Println("PRIME: ", header.Number, header.Hash())
+				log.Println("PRIME: ", header.Number, header.Hash())
 			}
 
 			if bundle.Context == 1 {
-				fmt.Println("REGION:", header.Number, header.Hash())
+				log.Println("REGION:", header.Number, header.Hash())
 			}
 
 			if bundle.Context == 2 {
-				fmt.Println("ZONE:  ", header.Number, header.Hash())
+				log.Println("ZONE:  ", header.Number, header.Hash())
 			}
 
 			// Check proper difficulty for which nodes to send block to
