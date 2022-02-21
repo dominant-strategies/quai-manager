@@ -36,9 +36,7 @@ type Manager struct {
 	config *params.ChainConfig // Chain configurations for signing
 	engine *ethash.Ethash
 
-	miningClients    []*ethclient.Client
-	miningAvailable  []bool
-	availableClients []*extBlockClient
+	orderedBlockClients []*orderedBlockClient
 	combinedHeader   *types.Header
 	pendingBlocks    []*types.ReceiptBlock // Current pending blocks of the manager
 	lock             sync.Mutex
@@ -56,11 +54,10 @@ type Manager struct {
 	BlockCache [][]*lru.Cache // Cache for the most recent entire blocks
 }
 
-type extBlockClient struct {
-	regionAvailable bool
-	regionClient    *ethclient.Client
-	zonesAvailable  []bool
-	zoneClients     []*ethclient.Client
+// Block struct to hold all Client fields.
+type orderedBlockClient struct {
+	chainAvailable bool
+	chainClient *ethclient.Client
 }
 
 func main() {
@@ -100,11 +97,15 @@ func main() {
 		config.Mine = mine == 1
 	}
 	// Set mining clients and whether they are available or not.
-	miningClients, miningAvailable := getMiningClients(config)
+	miningClients := getMiningClients(config)
 
 	// Retrieve all URLs for the nodes that are not apart of the mining slice.
 	// These nodes will need to receive external blocks sent from the manager.
 	extBlockClients := getExtClients(config)
+
+	// Set all clients into a single ordered array.
+	// External block clients are set to the back so must be reached by i + types.ContextDepth
+	allClients := append(miningClients, extBlockClients)
 
 	header := &types.Header{
 		ParentHash:        make([]common.Hash, 3),
@@ -134,9 +135,7 @@ func main() {
 	ethashEngine.SetThreads(4)
 	m := &Manager{
 		engine:               ethashEngine,
-		miningClients:        miningClients,
-		miningAvailable:      miningAvailable,
-		availableClients:     extBlockClients,
+		orderedBlockClients: allClients,
 		combinedHeader:       header,
 		pendingBlocks:        make([]*types.ReceiptBlock, 3),
 		pendingPrimeBlockCh:  make(chan *types.ReceiptBlock, resultQueueSize),
@@ -180,84 +179,90 @@ func main() {
 
 // getMiningClients takes in a config and retrieves the Prime, Region, and Zone client
 // that is used for mining in a slice.
-func getMiningClients(config util.Config) ([]*ethclient.Client, []bool) {
+func getMiningClients(config util.Config) []*orderedBlockClient {
 	var err error
-	miningClients := make([]*ethclient.Client, 3)
-	miningAvailable := make([]bool, 3)
+	miningClients := []orderedBlockClient
 
 	if config.PrimeURL != "" {
-		miningClients[0], err = ethclient.Dial(config.PrimeURL)
+		primeBlockClient := oreredBlockClient
+		primeClient, err = ethclient.Dial(config.PrimeURL)
 		if err != nil {
 			fmt.Println("Error connecting to Prime mining node")
 		} else {
-			miningAvailable[0] = true
+			primeBlockClient.chainAvailable = true
+			primeBlockClient.chainClient = primeClient
+			miningClients = append(miningClients, primeBlockClient)
 		}
 	}
 
 	regionURL := config.RegionURLs[config.Location[0]-1]
 	if regionURL != "" {
-		miningClients[1], err = ethclient.Dial(regionURL)
+		regionBlockClient := orderedBlockClient
+		regionClient, err = ethclient.Dial(regionURL)
 		if err != nil {
 			fmt.Println("Error connecting to Region mining node")
 		} else {
-			miningAvailable[1] = true
+			regionBlockClient.chainAvailable = true
+			regionBlockClient.chainClient = regionClient
+			miningClients = append(miningClients, regionBlockClient)
 		}
 	}
 
 	zoneURL := config.ZoneURLs[config.Location[0]-1][config.Location[1]-1]
 	if zoneURL != "" {
-		miningClients[2], err = ethclient.Dial(zoneURL)
+		zoneBlockClient := orderedBlockClient
+		zoneClient, err = ethclient.Dial(zoneURL)
 		if err != nil {
 			fmt.Println("Error connecting to Zone mining node")
 		} else {
-			miningAvailable[2] = true
+			zoneBlockClient.chainAvailable = true
+			zoneBlockClient.chainClient = zoneClient
+			miningClients = append(miningClients, zoneBlockClient)
 		}
 	}
-	return miningClients, miningAvailable
+	return miningClients
 }
 
 // getExtClients retrieves all clients from a config that are not part of the mining slice.
 // These clients will receive external blocks in order to perform traces on their nodes during
 // block processing. Do not consider Prime since all managers should be running Prime.
-func getExtClients(config util.Config) []*extBlockClient {
-	extBlockClients := []*extBlockClient{}
+func getExtClients(config util.Config) []*orderedBlockClient {
+	extBlockClients := []*orderedBlockClient{}
 	for i := 0; i < types.ContextDepth; i++ {
 		regionLoc := int(config.Location[0] - 1)
 		zoneLoc := int(config.Location[1] - 1)
-		extBlockClient := &extBlockClient{
-			regionAvailable: false,
-			zonesAvailable:  make([]bool, 3),
-			zoneClients:     make([]*ethclient.Client, 3),
-		}
-
+	
 		if i != regionLoc {
+			regionBlockClient := orderedBlockClient
 			extRegionURL := config.RegionURLs[i]
 			if extRegionURL != "" {
 				regionClient, err := ethclient.Dial(config.RegionURLs[i])
 				if err != nil {
 					fmt.Println("Error connecting to Region, context:", i+1)
 				} else {
-					extBlockClient.regionAvailable = true
-					extBlockClient.regionClient = regionClient
+					regionBlockClient.chainAvailable = true
+					regionBlockClient.chainClient = regionClient
+					extBlockClients = append(extBlockClients, regionBlockClient)
 				}
 			}
 		}
 
 		for j := 0; j < types.ContextDepth; j++ {
 			if i != regionLoc || j != zoneLoc {
+				zoneBlockClient := orderedBlockClient
 				extZoneURL := config.ZoneURLs[i][j]
 				if extZoneURL != "" {
 					zoneClient, err := ethclient.Dial(extZoneURL)
 					if err != nil {
 						fmt.Println("Error connecting to Zone, context:", i+1, j+1)
 					} else {
-						extBlockClient.zonesAvailable[j] = true
-						extBlockClient.zoneClients[j] = zoneClient
+						zoneBlockClient.chainAvailable = true
+						zoneBlockClient.chainClient = zoneClient
+						extBlockClients = append(extBlockClients, zoneBlockClient)
 					}
 				}
 			}
 		}
-		extBlockClients = append(extBlockClients, extBlockClient)
 	}
 	return extBlockClients
 }
