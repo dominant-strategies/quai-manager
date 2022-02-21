@@ -11,6 +11,7 @@ type Config struct {
 	RegionURLs []string
 	ZoneURLs   [][]string
 	Location   []byte
+	Mine       bool
 }
 
 // LoadConfig reads configuration from file or environment variables.
