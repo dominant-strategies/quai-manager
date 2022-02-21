@@ -13,7 +13,6 @@ import (
 	"sync"
 	"time"
 
-	"github.com/gorilla/websocket"
 	lru "github.com/hashicorp/golang-lru"
 	"github.com/spruce-solutions/go-quai/common"
 	"github.com/spruce-solutions/go-quai/common/hexutil"
@@ -43,7 +42,6 @@ type Manager struct {
 	combinedHeader   *types.Header
 	pendingBlocks    []*types.ReceiptBlock // Current pending blocks of the manager
 	lock             sync.Mutex
-	conns            []*wsConn // Currently live websocket connections
 	location         []byte
 
 	pendingPrimeBlockCh  chan *types.ReceiptBlock
@@ -56,13 +54,6 @@ type Manager struct {
 	exitCh    chan struct{}
 
 	BlockCache [][]*lru.Cache // Cache for the most recent entire blocks
-}
-
-// wsConn wraps a websocket connection with a write mutex as the underlying
-// websocket library does not synchronize access to the stream.
-type wsConn struct {
-	conn  *websocket.Conn
-	wlock sync.Mutex
 }
 
 type extBlockClient struct {
