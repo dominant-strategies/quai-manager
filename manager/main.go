@@ -281,7 +281,7 @@ func (m *Manager) subscribePendingHeader(sliceIndex int) {
 func (m *Manager) subscribeNewHead() {
 
 	prime := "prime"
-	regions := [3]string{"region1", "region2", "region3"}
+	regions := [3]string{"region-1", "region-2", "region-3"}
 
 	// subscribe to the prime and region clients
 	m.subscribeNewHeadClient(m.orderedBlockClients[0].chainClient, m.orderedBlockClients[0].chainAvailable, prime, 0)
@@ -375,7 +375,7 @@ func (m *Manager) subscribeNewHeadClient(client *ethclient.Client, available boo
 func (m *Manager) subscribeReOrg() {
 
 	prime := "prime"
-	regions := [3]string{"region1", "region2", "region3"}
+	regions := [3]string{"region-1", "region-2", "region-3"}
 
 	// subscribe to the prime and region clients
 	m.subscribeReOrgClients(m.miningClients[0], m.miningAvailable[0], prime, 0)
@@ -509,13 +509,13 @@ func (m *Manager) sendReOrgHeader(header *types.Header, location string) {
 
 // getRegionIndex returns the location index of the reorgLocation
 func getRegionIndex(location string) int {
-	if location == "region1" {
+	if location == "region-1" {
 		return 0
 	}
-	if location == "region2" {
+	if location == "region-2" {
 		return 1
 	}
-	if location == "region3" {
+	if location == "region-3" {
 		return 2
 	}
 	return -1
