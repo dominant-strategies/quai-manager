@@ -36,7 +36,7 @@ type Manager struct {
 	config *params.ChainConfig // Chain configurations for signing
 	engine *ethash.Ethash
 
-	orderedBlockClients []*orderedBlockClient
+	orderedBlockClients []*orderedBlockClient // will hold all chain URLs and settings in order from prime to zone-3-3
 	combinedHeader   *types.Header
 	pendingBlocks    []*types.ReceiptBlock // Current pending blocks of the manager
 	lock             sync.Mutex
@@ -96,16 +96,8 @@ func main() {
 		config.Location = []byte{RegionLocArr[0], ZoneLocArr[0]}
 		config.Mine = mine == 1
 	}
-	// Set mining clients and whether they are available or not.
-	miningClients := getMiningClients(config)
-
-	// Retrieve all URLs for the nodes that are not apart of the mining slice.
-	// These nodes will need to receive external blocks sent from the manager.
-	extBlockClients := getExtClients(config)
-
-	// Set all clients into a single ordered array.
-	// External block clients are set to the back so must be reached by i + types.ContextDepth
-	allClients := append(miningClients, extBlockClients)
+	// Get URLs for all chains and set mining bools; if true then mine
+	allClients := getMiningClients(config)
 
 	header := &types.Header{
 		ParentHash:        make([]common.Hash, 3),
@@ -147,7 +139,7 @@ func main() {
 		startCh:              make(chan struct{}, 1),
 		location:             config.Location,
 	}
-
+	// next point of work
 	go m.subscribeNewHead()
 
 	go m.subscribeReOrg()
@@ -181,8 +173,9 @@ func main() {
 // that is used for mining in a slice.
 func getMiningClients(config util.Config) []*orderedBlockClient {
 	var err error
-	miningClients := []orderedBlockClient
+	allClients := []orderedBlockClient
 
+	// add Prime to orderedBlockClient array at [0]
 	if config.PrimeURL != "" {
 		primeBlockClient := oreredBlockClient
 		primeClient, err = ethclient.Dial(config.PrimeURL)
@@ -191,81 +184,55 @@ func getMiningClients(config util.Config) []*orderedBlockClient {
 		} else {
 			primeBlockClient.chainAvailable = true
 			primeBlockClient.chainClient = primeClient
-			miningClients = append(miningClients, primeBlockClient)
+			allClients = append(allClients, primeBlockClient)
 		}
 	}
 
-	regionURL := config.RegionURLs[config.Location[0]-1]
-	if regionURL != "" {
-		regionBlockClient := orderedBlockClient
-		regionClient, err = ethclient.Dial(regionURL)
-		if err != nil {
-			fmt.Println("Error connecting to Region mining node")
-		} else {
-			regionBlockClient.chainAvailable = true
-			regionBlockClient.chainClient = regionClient
-			miningClients = append(miningClients, regionBlockClient)
-		}
-	}
-
-	zoneURL := config.ZoneURLs[config.Location[0]-1][config.Location[1]-1]
-	if zoneURL != "" {
-		zoneBlockClient := orderedBlockClient
-		zoneClient, err = ethclient.Dial(zoneURL)
-		if err != nil {
-			fmt.Println("Error connecting to Zone mining node")
-		} else {
-			zoneBlockClient.chainAvailable = true
-			zoneBlockClient.chainClient = zoneClient
-			miningClients = append(miningClients, zoneBlockClient)
-		}
-	}
-	return miningClients
-}
-
-// getExtClients retrieves all clients from a config that are not part of the mining slice.
-// These clients will receive external blocks in order to perform traces on their nodes during
-// block processing. Do not consider Prime since all managers should be running Prime.
-func getExtClients(config util.Config) []*orderedBlockClient {
-	extBlockClients := []*orderedBlockClient{}
-	for i := 0; i < types.ContextDepth; i++ {
-		regionLoc := int(config.Location[0] - 1)
-		zoneLoc := int(config.Location[1] - 1)
-	
-		if i != regionLoc {
+	// loop to add Regions to orderedBlockClient
+	// remember to set true value for Region to be mined
+	for i, URL := range config.RegionURLs {
+		regionURL := URL
+		if regionURL != "" {
 			regionBlockClient := orderedBlockClient
-			extRegionURL := config.RegionURLs[i]
-			if extRegionURL != "" {
-				regionClient, err := ethclient.Dial(config.RegionURLs[i])
-				if err != nil {
-					fmt.Println("Error connecting to Region, context:", i+1)
-				} else {
+			regionClient, err = ethclient.Dial(regionURL)
+			if err != nil {
+				fmt.Println("Error connecting to Region mining node %d in location %b", URL, i)
+			} else {
+				if i == int(config.Location[0]) {
 					regionBlockClient.chainAvailable = true
-					regionBlockClient.chainClient = regionClient
-					extBlockClients = append(extBlockClients, regionBlockClient)
+				} else {
+					regionBlockClient.chainAvailable = false
 				}
+				regionBlockClient.chainClient = regionClient
+				alllients = append(allClients, regionBlockClient)
 			}
 		}
+	}
 
-		for j := 0; j < types.ContextDepth; j++ {
-			if i != regionLoc || j != zoneLoc {
+	// loop to add Zones to orderedBlockClient
+	// remember ZoneURLS is a 2D array
+	for i, zonesURLs := range config.ZoneURLs {
+		for j, URL := range zonesURLS {
+			if URL != "" {
 				zoneBlockClient := orderedBlockClient
-				extZoneURL := config.ZoneURLs[i][j]
-				if extZoneURL != "" {
-					zoneClient, err := ethclient.Dial(extZoneURL)
-					if err != nil {
-						fmt.Println("Error connecting to Zone, context:", i+1, j+1)
-					} else {
+				zoneClient, err = ethclient.Dial(zoneURL)
+				if err != nil {
+					fmt.Println("Error connecting to Zone mining node")
+				} else {
+					if i == int(config.Location[0]) && j == int(config.Location[1]) {
 						zoneBlockClient.chainAvailable = true
-						zoneBlockClient.chainClient = zoneClient
-						extBlockClients = append(extBlockClients, zoneBlockClient)
+					} else {
+						zoneBlockClient.chainAvailable = false
 					}
+					zoneBlockClient.chainClient = zoneClient
+					allClients = append(allClients, zoneBlockClient)
 				}
 			}
 		}
 	}
-	return extBlockClients
+	return allClients
 }
+
 
 // subscribePendingHeader subscribes to the head of the mining nodes in order to pass
 // the most up to date block to the miner within the manager.
@@ -317,12 +284,13 @@ func (m *Manager) subscribeNewHead() {
 	regions := [3]string{"region1", "region2", "region3"}
 
 	// subscribe to the prime and region clients
-	m.subscribeNewHeadClient(m.miningClients[0], m.miningAvailable[0], prime, 0)
-	m.subscribeNewHeadClient(m.miningClients[1], m.miningAvailable[1], regions[m.location[0]-1], 1)
+	m.subscribeNewHeadClient(m.orderedBlockClients[0].chainClient, m.orderedBlockClients[0].chainAvailable, prime, 0)
+	m.subscribeNewHeadClient(m.orderedBlockClients[1].chainClient, m.orderedBlockClients[1].chainAvailable, regions[m.location[0]-1], 1)
 
 	// Send external block to nodes outside of slice, first check if available then send.
-	for i := 0; i < len(m.availableClients); i++ {
-		m.subscribeNewHeadClient(m.availableClients[i].regionClient, m.availableClients[i].regionAvailable, regions[i], 1)
+	// Remember extBlockClients are reached in orderedBlockClients array by i + types.ContextDepth
+	for i := 0; i < len(m.orderedBlockClients[types.ContextDepth:]); i++ {
+		m.subscribeNewHeadClient(m.orderedBlockClients[i + types.ContextDepth].chainClient, m.orderedBlockClients[i + types.ContextDepth].chainAvailable, regions[i], 1)
 	}
 
 	//subscribe to the regions from external contexts
