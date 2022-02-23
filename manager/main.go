@@ -58,7 +58,7 @@ type Manager struct {
 type orderedBlockClient struct {
 	chainAvailable bool
 	chainClient    *ethclient.Client
-	chainContext   uint8
+	chainContext   int
 }
 
 func main() {
@@ -797,7 +797,7 @@ func (m *Manager) resultLoop() error {
 }
 
 // SendClientsMinedExtBlock takes in the mined block and calls the pending blocks to send to the clients.
-func (m *Manager) SendClientsMinedExtBlock(mined int64, externalContexts []int, header *types.Header, wg *sync.WaitGroup) {
+func (m *Manager) SendClientsMinedExtBlock(mined int, externalContexts []int, header *types.Header, wg *sync.WaitGroup) {
 	receiptBlock := m.pendingBlocks[mined]
 	if receiptBlock != nil {
 		block := types.NewBlockWithHeader(header).WithBody(receiptBlock.Transactions(), receiptBlock.Uncles())
@@ -808,33 +808,27 @@ func (m *Manager) SendClientsMinedExtBlock(mined int64, externalContexts []int, 
 
 // SendClientsExtBlock takes in the mined block and the contexts of the mining slice to send the external block to.
 // ex. mined 2, externalContexts []int{0, 1} will send the Zone external block to Prime and Region.
-func (m *Manager) SendClientsExtBlock(mined int64, externalContexts []int, block *types.Block, receiptBlock *types.ReceiptBlock) {
-	for i := 0; i < len(externalContexts); i++ {
-		if m.miningAvailable[externalContexts[i]] {
-			m.miningClients[externalContexts[i]].SendExternalBlock(context.Background(), block, receiptBlock.Receipts(), big.NewInt(mined))
-		}
-	}
-
-	// Send external block to nodes outside of slice, first check if available then send.
-	for i := 0; i < len(m.availableClients); i++ {
-		if m.availableClients[i].regionAvailable {
-			m.availableClients[i].regionClient.SendExternalBlock(context.Background(), block, receiptBlock.Receipts(), big.NewInt(mined))
-		}
-		for j := 0; j < len(m.availableClients[i].zonesAvailable); j++ {
-			if m.availableClients[i].zonesAvailable[j] {
-				m.availableClients[i].zoneClients[j].SendExternalBlock(context.Background(), block, receiptBlock.Receipts(), big.NewInt(mined))
+func (m *Manager) SendClientsExtBlock(mined int, externalContexts []int, block *types.Block, receiptBlock *types.ReceiptBlock) {
+	for _, externalContext := range externalContexts {
+		for _, blockClient := range m.orderedBlockClients {
+			if blockClient.chainAvailable == true && blockClient.chainContext == externalContext {
+				blockClient.chainClient.SendExternalBlock(context.Background(), block, receiptBlock.Receipts(), big.NewInt(mined))
 			}
 		}
 	}
 }
 
 // SendMinedBlock sends the mined block to its mining client with the transactions, uncles, and receipts.
-func (m *Manager) SendMinedBlock(mined int64, header *types.Header, wg *sync.WaitGroup) {
+func (m *Manager) SendMinedBlock(mined int, header *types.Header, wg *sync.WaitGroup) {
 	receiptBlock := m.pendingBlocks[mined]
 	block := types.NewBlockWithHeader(receiptBlock.Header()).WithBody(receiptBlock.Transactions(), receiptBlock.Uncles())
-	if block != nil && m.miningAvailable[mined] {
-		sealed := block.WithSeal(header)
-		m.miningClients[mined].SendMinedBlock(context.Background(), sealed, true, true)
+	if block != nil {
+		for _, blockClient := range m.orderedBlockClients {
+			if blockClient.chainAvailable == true && blockClient.chainContext == mined {
+				sealed := block.WithSeal(header)
+				blockClient.chainClient.SendMinedBlock(context.Background(), sealed, true, true)
+			}
+		}
 	}
 	defer wg.Done()
 }
