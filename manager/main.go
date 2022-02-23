@@ -36,7 +36,7 @@ type Manager struct {
 	config *params.ChainConfig // Chain configurations for signing
 	engine *ethash.Ethash
 
-	orderedBlockClients []*orderedBlockClient // will hold all chain URLs and settings in order from prime to zone-3-3
+	orderedBlockClients []orderedBlockClient // will hold all chain URLs and settings in order from prime to zone-3-3
 	combinedHeader      *types.Header
 	pendingBlocks       []*types.ReceiptBlock // Current pending blocks of the manager
 	lock                sync.Mutex
@@ -172,7 +172,6 @@ func main() {
 // getMiningClients takes in a config and retrieves the Prime, Region, and Zone client
 // that is used for mining in a slice.
 func getMiningClients(config util.Config) []orderedBlockClient {
-	var err error
 	allClients := []orderedBlockClient{}
 
 	// add Prime to orderedBlockClient array at [0]
