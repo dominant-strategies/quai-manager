@@ -37,10 +37,10 @@ type Manager struct {
 	engine *ethash.Ethash
 
 	orderedBlockClients []*orderedBlockClient // will hold all chain URLs and settings in order from prime to zone-3-3
-	combinedHeader   *types.Header
-	pendingBlocks    []*types.ReceiptBlock // Current pending blocks of the manager
-	lock             sync.Mutex
-	location         []byte
+	combinedHeader      *types.Header
+	pendingBlocks       []*types.ReceiptBlock // Current pending blocks of the manager
+	lock                sync.Mutex
+	location            []byte
 
 	pendingPrimeBlockCh  chan *types.ReceiptBlock
 	pendingRegionBlockCh chan *types.ReceiptBlock
@@ -57,7 +57,7 @@ type Manager struct {
 // Block struct to hold all Client fields.
 type orderedBlockClient struct {
 	chainAvailable bool
-	chainClient *ethclient.Client
+	chainClient    *ethclient.Client
 }
 
 func main() {
@@ -127,7 +127,7 @@ func main() {
 	ethashEngine.SetThreads(4)
 	m := &Manager{
 		engine:               ethashEngine,
-		orderedBlockClients: allClients,
+		orderedBlockClients:  allClients,
 		combinedHeader:       header,
 		pendingBlocks:        make([]*types.ReceiptBlock, 3),
 		pendingPrimeBlockCh:  make(chan *types.ReceiptBlock, resultQueueSize),
@@ -171,14 +171,14 @@ func main() {
 
 // getMiningClients takes in a config and retrieves the Prime, Region, and Zone client
 // that is used for mining in a slice.
-func getMiningClients(config util.Config) []*orderedBlockClient {
+func getMiningClients(config util.Config) []orderedBlockClient {
 	var err error
-	allClients := []orderedBlockClient
+	allClients := []orderedBlockClient{}
 
 	// add Prime to orderedBlockClient array at [0]
 	if config.PrimeURL != "" {
-		primeBlockClient := oreredBlockClient
-		primeClient, err = ethclient.Dial(config.PrimeURL)
+		primeBlockClient := orderedBlockClient{}
+		primeClient, err := ethclient.Dial(config.PrimeURL)
 		if err != nil {
 			fmt.Println("Error connecting to Prime mining node")
 		} else {
@@ -193,8 +193,8 @@ func getMiningClients(config util.Config) []*orderedBlockClient {
 	for i, URL := range config.RegionURLs {
 		regionURL := URL
 		if regionURL != "" {
-			regionBlockClient := orderedBlockClient
-			regionClient, err = ethclient.Dial(regionURL)
+			regionBlockClient := orderedBlockClient{}
+			regionClient, err := ethclient.Dial(regionURL)
 			if err != nil {
 				fmt.Println("Error connecting to Region mining node %d in location %b", URL, i)
 			} else {
@@ -204,7 +204,7 @@ func getMiningClients(config util.Config) []*orderedBlockClient {
 					regionBlockClient.chainAvailable = false
 				}
 				regionBlockClient.chainClient = regionClient
-				alllients = append(allClients, regionBlockClient)
+				allClients = append(allClients, regionBlockClient)
 			}
 		}
 	}
@@ -212,10 +212,10 @@ func getMiningClients(config util.Config) []*orderedBlockClient {
 	// loop to add Zones to orderedBlockClient
 	// remember ZoneURLS is a 2D array
 	for i, zonesURLs := range config.ZoneURLs {
-		for j, URL := range zonesURLS {
-			if URL != "" {
-				zoneBlockClient := orderedBlockClient
-				zoneClient, err = ethclient.Dial(zoneURL)
+		for j, zoneURL := range zonesURLs {
+			if zoneURL != "" {
+				zoneBlockClient := orderedBlockClient{}
+				zoneClient, err := ethclient.Dial(zoneURL)
 				if err != nil {
 					fmt.Println("Error connecting to Zone mining node")
 				} else {
@@ -232,7 +232,6 @@ func getMiningClients(config util.Config) []*orderedBlockClient {
 	}
 	return allClients
 }
-
 
 // subscribePendingHeader subscribes to the head of the mining nodes in order to pass
 // the most up to date block to the miner within the manager.
@@ -290,7 +289,7 @@ func (m *Manager) subscribeNewHead() {
 	// Send external block to nodes outside of slice, first check if available then send.
 	// Remember extBlockClients are reached in orderedBlockClients array by i + types.ContextDepth
 	for i := 0; i < len(m.orderedBlockClients[types.ContextDepth:]); i++ {
-		m.subscribeNewHeadClient(m.orderedBlockClients[i + types.ContextDepth].chainClient, m.orderedBlockClients[i + types.ContextDepth].chainAvailable, regions[i], 1)
+		m.subscribeNewHeadClient(m.orderedBlockClients[i+types.ContextDepth].chainClient, m.orderedBlockClients[i+types.ContextDepth].chainAvailable, regions[i], 1)
 	}
 
 	//subscribe to the regions from external contexts
@@ -378,13 +377,21 @@ func (m *Manager) subscribeReOrg() {
 	regions := [3]string{"region-1", "region-2", "region-3"}
 
 	// subscribe to the prime and region clients
-	m.subscribeReOrgClients(m.miningClients[0], m.miningAvailable[0], prime, 0)
-	m.subscribeReOrgClients(m.miningClients[1], m.miningAvailable[1], regions[m.location[0]-1], 1)
+	// prime is always true so simply directly subscribe
+	m.subscribeReOrgClients(m.orderedBlockClients[0].chainClient, m.orderedBlockClients[0].chainAvailable, prime, 0)
+	// for-if statement to loop over Region allClients and select available Region
+	for i := 1; i < len(m.orderedBlockClients[1:3]); i++ {
+		if m.orderedBlockClients[i].chainAvailable == true {
+			m.subscribeReOrgClients(m.orderedBlockClients[i].chainClient, m.orderedBlockClients[i].chainAvailable, regions[m.location[0]-1], 1)
+			break
+		}
+	}
 
 	//subscribe to the regions from external contexts
-	for i := 0; i < len(m.availableClients); i++ {
-		if i != int(m.location[0]-1) {
-			m.subscribeReOrgClients(m.availableClients[i].regionClient, m.availableClients[i].regionAvailable, regions[i], 1)
+	for i := 1; i < len(m.orderedBlockClients[1:3]); i++ {
+		if m.orderedBlockClients[i].chainAvailable == false {
+			m.subscribeReOrgClients(m.orderedBlockClients[i].chainClient, m.orderedBlockClients[i].chainAvailable, regions[m.location[0]-1], 1)
+			break
 		}
 	}
 }
