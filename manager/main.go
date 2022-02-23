@@ -58,6 +58,7 @@ type Manager struct {
 type orderedBlockClient struct {
 	chainAvailable bool
 	chainClient    *ethclient.Client
+	chainContext   uint8
 }
 
 func main() {
@@ -139,19 +140,19 @@ func main() {
 		startCh:              make(chan struct{}, 1),
 		location:             config.Location,
 	}
-	// next point of work
+
 	go m.subscribeNewHead()
 
 	go m.subscribeReOrg()
 
-	if config.Mine {
+	if config.Mine == true {
 		fmt.Println("Starting manager in location ", config.Location)
-		for i := 0; i < len(m.miningClients); i++ {
-			if m.miningAvailable[i] {
-				go m.subscribePendingHeader(i)
+		for _, blockClient := range m.orderedBlockClients {
+			if blockClient.chainAvailable == true {
+				go m.subscribePendingHeader(blockClient)
 			}
 		}
-
+		// next point of work
 		go m.resultLoop()
 
 		go m.miningLoop()
@@ -183,6 +184,7 @@ func getMiningClients(config util.Config) []orderedBlockClient {
 		} else {
 			primeBlockClient.chainAvailable = true
 			primeBlockClient.chainClient = primeClient
+			primeBlockClient.chainContext = 0
 			allClients = append(allClients, primeBlockClient)
 		}
 	}
@@ -203,6 +205,7 @@ func getMiningClients(config util.Config) []orderedBlockClient {
 					regionBlockClient.chainAvailable = false
 				}
 				regionBlockClient.chainClient = regionClient
+				regionBlockClient.chainContext = 1
 				allClients = append(allClients, regionBlockClient)
 			}
 		}
@@ -224,6 +227,7 @@ func getMiningClients(config util.Config) []orderedBlockClient {
 						zoneBlockClient.chainAvailable = false
 					}
 					zoneBlockClient.chainClient = zoneClient
+					zoneBlockClient.chainContext = 2
 					allClients = append(allClients, zoneBlockClient)
 				}
 			}
@@ -234,9 +238,10 @@ func getMiningClients(config util.Config) []orderedBlockClient {
 
 // subscribePendingHeader subscribes to the head of the mining nodes in order to pass
 // the most up to date block to the miner within the manager.
-func (m *Manager) subscribePendingHeader(sliceIndex int) {
+func (m *Manager) subscribePendingHeader(client orderedBlockClient) {
 	// check the status of the sync
-	checkSync, err := m.miningClients[sliceIndex].SyncProgress(context.Background())
+	checkSync, err := client.chainClient.SyncProgress(context.Background())
+	sliceIndex := client.chainContext
 
 	if err != nil {
 		switch sliceIndex {
@@ -251,14 +256,14 @@ func (m *Manager) subscribePendingHeader(sliceIndex int) {
 
 	// wait until sync is nil to continue
 	for checkSync != nil && err == nil {
-		checkSync, err = m.miningClients[sliceIndex].SyncProgress(context.Background())
+		checkSync, err = client.chainClient.SyncProgress(context.Background())
 	}
 
 	// subscribe to the pending block only if not synching
 	if checkSync == nil && err == nil {
 		// Wait for chain events and push them to clients
 		header := make(chan *types.Header)
-		sub, err := m.miningClients[sliceIndex].SubscribePendingBlock(context.Background(), header)
+		sub, err := client.chainClient.SubscribePendingBlock(context.Background(), header)
 		if err != nil {
 			log.Fatal("Failed to subscribe to pending block events", err)
 		}
@@ -269,7 +274,7 @@ func (m *Manager) subscribePendingHeader(sliceIndex int) {
 			select {
 			case <-header:
 				// New head arrived, send if for state update if there's none running
-				m.fetchPendingBlocks(sliceIndex)
+				m.fetchPendingBlocks(client)
 			}
 		}
 	}
@@ -520,13 +525,14 @@ func getRegionIndex(location string) int {
 
 // fetchPendingBlocks gets the latest block when we have received a new pending header. This will get the receipts,
 // transactions, and uncles to be stored during mining.
-func (m *Manager) fetchPendingBlocks(sliceIndex int) {
+func (m *Manager) fetchPendingBlocks(client orderedBlockClient) {
 	retryAttempts := 5
 	var receiptBlock *types.ReceiptBlock
 	var err error
+	sliceIndex := client.chainContext
 
 	m.lock.Lock()
-	receiptBlock, err = m.miningClients[sliceIndex].GetPendingBlock(context.Background())
+	receiptBlock, err = client.chainClient.GetPendingBlock(context.Background())
 
 	// check for stale headers and refetch the latest header
 	if receiptBlock.Header().Number[sliceIndex] == m.combinedHeader.Number[sliceIndex] && err == nil {
@@ -534,16 +540,14 @@ func (m *Manager) fetchPendingBlocks(sliceIndex int) {
 		case 0:
 			fmt.Println("Expected header numbers don't match for Prime at block height", receiptBlock.Header().Number[0])
 			fmt.Println("Retrying and attempting to refetch the latest header for Prime")
-			receiptBlock, err = m.miningClients[0].GetPendingBlock(context.Background())
 		case 1:
 			fmt.Println("Expected header numbers don't match for Region at block height", receiptBlock.Header().Number[1])
 			fmt.Println("Retrying and attempting to refetch the latest header for Region")
-			receiptBlock, err = m.miningClients[1].GetPendingBlock(context.Background())
 		case 2:
 			fmt.Println("Expected header numbers don't match for Zone at block height", receiptBlock.Header().Number[2])
 			fmt.Println("Retrying and attempting to refetch the latest header for Zone")
-			receiptBlock, err = m.miningClients[2].GetPendingBlock(context.Background())
 		}
+		receiptBlock, err = client.chainClient.GetPendingBlock(context.Background())
 	}
 
 	// retrying for 5 times if pending block not found
@@ -551,7 +555,7 @@ func (m *Manager) fetchPendingBlocks(sliceIndex int) {
 		fmt.Println("Pending block not found for index:", sliceIndex, "error:", err)
 
 		for i := 0; ; i++ {
-			receiptBlock, err = m.miningClients[sliceIndex].GetPendingBlock(context.Background())
+			receiptBlock, err = client.chainClient.GetPendingBlock(context.Background())
 			if err == nil {
 				break
 			}
