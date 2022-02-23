@@ -281,36 +281,32 @@ func (m *Manager) subscribeNewHead() {
 	prime := "prime"
 	regions := [3]string{"region-1", "region-2", "region-3"}
 
-	// subscribe to the prime and region clients
-	m.subscribeNewHeadClient(m.orderedBlockClients[0].chainClient, m.orderedBlockClients[0].chainAvailable, prime, 0)
-	m.subscribeNewHeadClient(m.orderedBlockClients[1].chainClient, m.orderedBlockClients[1].chainAvailable, regions[m.location[0]-1], 1)
-
-	// Send external block to nodes outside of slice, first check if available then send.
-	// Remember extBlockClients are reached in orderedBlockClients array by i + types.ContextDepth
-	for i := 0; i < len(m.orderedBlockClients[types.ContextDepth:]); i++ {
-		m.subscribeNewHeadClient(m.orderedBlockClients[i+types.ContextDepth].chainClient, m.orderedBlockClients[i+types.ContextDepth].chainAvailable, regions[i], 1)
+	// subscribe to the prime client
+	m.subscribeNewHeadClient(m.orderedBlockClients[0].chainClient, prime, 0)
+	// subscribe to the region client on the mining location
+	for _, blockClient := range m.orderedBlockClients[1:types.ContextDepth] {
+		if blockClient.chainAvailable == true {
+			m.subscribeNewHeadClient(blockClient.chainClient, regions[m.location[0]-1], 1)
+			break
+		}
 	}
 
-	//subscribe to the regions from external contexts
-	for i := 0; i < len(m.availableClients); i++ {
-		if i != int(m.location[0]-1) {
-			m.subscribeNewHeadClient(m.availableClients[i].regionClient, m.availableClients[i].regionAvailable, regions[i], 1)
+	// subscribe to external region contexts
+	for _, blockClient := range m.orderedBlockClients[1:types.ContextDepth] {
+		if blockClient.chainAvailable == false {
+			m.subscribeNewHeadClient(blockClient.chainClient, regions[m.location[0]-1], 1)
 		}
 	}
 }
 
-func (m *Manager) subscribeNewHeadClient(client *ethclient.Client, available bool, location string, difficultyContext int) {
+func (m *Manager) subscribeNewHeadClient(client *ethclient.Client, location string, difficultyContext int) {
 	newHeadChannel := make(chan *types.Header, 1)
 	retryAttempts := 5
-	if available {
-		sub, err := client.SubscribeNewHead(context.Background(), newHeadChannel)
-		if err != nil {
-			log.Fatal("Failed to subscribe to the reorg notifications in ", location, err)
-		}
-		defer sub.Unsubscribe()
-	} else {
-		log.Fatal("Failed to subscribe to the reorg notifications in ", location, "client is not available")
+	sub, err := client.SubscribeNewHead(context.Background(), newHeadChannel)
+	if err != nil {
+		log.Fatal("Failed to subscribe to the reorg notifications in ", location, err)
 	}
+	defer sub.Unsubscribe()
 
 	for {
 		select {
