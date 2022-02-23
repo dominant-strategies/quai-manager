@@ -377,11 +377,11 @@ func (m *Manager) subscribeReOrg() {
 
 	// subscribe to the prime and region clients
 	// prime is always true so simply directly subscribe
-	m.subscribeReOrgClients(m.orderedBlockClients[0].chainClient, m.orderedBlockClients[0].chainAvailable, prime, 0)
+	m.subscribeReOrgClients(m.orderedBlockClients[0].chainClient, prime, 0)
 	// for-if statement to loop over Region allClients and select available Region
 	for i := 1; i < len(m.orderedBlockClients[1:3]); i++ {
 		if m.orderedBlockClients[i].chainAvailable == true {
-			m.subscribeReOrgClients(m.orderedBlockClients[i].chainClient, m.orderedBlockClients[i].chainAvailable, regions[m.location[0]-1], 1)
+			m.subscribeReOrgClients(m.orderedBlockClients[i].chainClient, regions[m.location[0]-1], 1)
 			break
 		}
 	}
@@ -389,8 +389,7 @@ func (m *Manager) subscribeReOrg() {
 	//subscribe to the regions from external contexts
 	for i := 1; i < len(m.orderedBlockClients[1:3]); i++ {
 		if m.orderedBlockClients[i].chainAvailable == false {
-			m.subscribeReOrgClients(m.orderedBlockClients[i].chainClient, m.orderedBlockClients[i].chainAvailable, regions[m.location[0]-1], 1)
-			break
+			m.subscribeReOrgClients(m.orderedBlockClients[i].chainClient, regions[m.location[0]-1], 1)
 		}
 	}
 }
@@ -432,17 +431,13 @@ func compareReorgDifficulty(commonHead *types.Header, oldChain, newChain []*type
 	return newChainDifficulty.Cmp(oldChainDifficulty) > 0 && nonceEmpty
 }
 
-func (m *Manager) subscribeReOrgClients(client *ethclient.Client, available bool, location string, difficultyContext int) {
+func (m *Manager) subscribeReOrgClients(client *ethclient.Client, location string, difficultyContext int) {
 	reOrgData := make(chan core.ReOrgRollup, 1)
-	if available {
-		sub, err := client.SubscribeReOrg(context.Background(), reOrgData)
-		if err != nil {
-			log.Fatal("Failed to subscribe to the reorg notifications in", location, err)
-		}
-		defer sub.Unsubscribe()
-	} else {
-		log.Fatal("Failed to subscribe to the reorg notifications in", location, "client is not available")
+	sub, err := client.SubscribeReOrg(context.Background(), reOrgData)
+	if err != nil {
+		log.Fatal("Failed to subscribe to the reorg notifications in", location, err)
 	}
+	defer sub.Unsubscribe()
 
 	for {
 		select {
