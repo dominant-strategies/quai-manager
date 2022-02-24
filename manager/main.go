@@ -461,14 +461,12 @@ func (m *Manager) sendReOrgHeader(header *types.Header, location string) {
 		}
 	} else { // regions
 		// only subscribe to the zones
-		reorgLocation := getRegionIndex(location)
-		if reorgLocation == int(m.location[0]) {
-			// send to the zone chain in the mining client and send to two other chains in the external clients
-			for _, blockClient := range m.orderedBlockClients[4:] {
-				blockClient.chainClient.SendReOrgData(context.Background(), header)
-			}
+		// send to the zone chain in the mining client and send to two other chains in the external clients
+		for _, blockClient := range m.orderedBlockClients[4:] {
+			blockClient.chainClient.SendReOrgData(context.Background(), header)
 		}
 	}
+
 }
 
 // getRegionIndex returns the location index of the reorgLocation
