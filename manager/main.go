@@ -100,6 +100,12 @@ func main() {
 	// Get URLs for all chains and set mining bools; if true then mine
 	allClients := getMiningClients(config)
 
+	// errror handling in case any connections failed
+	if len(allClients) < 13 {
+		fmt.Println("some or all connections not succeeded")
+		fmt.Println("connections succeeded ", allClients)
+	}
+
 	header := &types.Header{
 		ParentHash:        make([]common.Hash, 3),
 		Number:            make([]*big.Int, 3),
