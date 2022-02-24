@@ -360,9 +360,9 @@ func (m *Manager) subscribeNewHeadClient(client *ethclient.Client, location stri
 			}
 
 			if difficultyContext == 0 {
-				m.SendClientsExtBlock(int64(difficultyContext), []int{1, 2}, block, receiptBlock)
+				m.SendClientsExtBlock(difficultyContext, []int{1, 2}, block, receiptBlock)
 			} else if difficultyContext == 1 {
-				m.SendClientsExtBlock(int64(difficultyContext), []int{2}, block, receiptBlock)
+				m.SendClientsExtBlock(difficultyContext, []int{2}, block, receiptBlock)
 			}
 		}
 	}
@@ -453,57 +453,19 @@ func (m *Manager) subscribeReOrgClients(client *ethclient.Client, location strin
 
 // sendReOrgHeader sends the reorg header to the respective region and zone clients
 func (m *Manager) sendReOrgHeader(header *types.Header, location string) {
-	regionLoc := int(m.location[0] - 1)
-	zoneLoc := int(m.location[1] - 1)
 	if location == "prime" {
 		// if the reorg event takes palce in prime then have to send the header to all
 		// the chains except for prime
-		// First send to the mining region and zone
-		if m.miningAvailable[1] {
-			m.miningClients[1].SendReOrgData(context.Background(), header)
+		for _, blockClient := range m.orderedBlockClients[1:] { // start at 1 to skip Prime
+			blockClient.chainClient.SendReOrgData(context.Background(), header) // all clients pass thru regardless if mining
 		}
-		if m.miningAvailable[2] {
-			m.miningClients[2].SendReOrgData(context.Background(), header)
-		}
-
-		//send to the external contexts
-		for i := 0; i < types.ContextDepth; i++ {
-			if i != regionLoc {
-				if m.availableClients[i].regionAvailable {
-					m.availableClients[i].regionClient.SendReOrgData(context.Background(), header)
-				}
-			}
-			// send to the zones
-			for j := 0; j < types.ContextDepth; j++ {
-				if i != regionLoc || j != zoneLoc {
-					if m.availableClients[i].zonesAvailable[j] {
-						m.availableClients[i].zoneClients[j].SendReOrgData(context.Background(), header)
-					}
-				}
-			}
-		}
-	} else {
-		// send to only the respective zones
+	} else { // regions
+		// only subscribe to the zones
 		reorgLocation := getRegionIndex(location)
-		if reorgLocation == regionLoc {
+		if reorgLocation == int(m.location[0]) {
 			// send to the zone chain in the mining client and send to two other chains in the external clients
-			if m.miningAvailable[2] {
-				m.miningClients[2].SendReOrgData(context.Background(), header)
-
-			}
-			for j := 0; j < types.ContextDepth; j++ {
-				if j != zoneLoc {
-					if m.availableClients[reorgLocation].zonesAvailable[j] {
-						m.availableClients[reorgLocation].zoneClients[j].SendReOrgData(context.Background(), header)
-					}
-				}
-			}
-			// if the reorgLocation is not equal to the mining region Location
-		} else {
-			for j := 0; j < types.ContextDepth; j++ {
-				if m.availableClients[reorgLocation].zonesAvailable[j] {
-					m.availableClients[reorgLocation].zoneClients[j].SendReOrgData(context.Background(), header)
-				}
+			for _, blockClient := range m.orderedBlockClients[4:] {
+				blockClient.chainClient.SendReOrgData(context.Background(), header)
 			}
 		}
 	}
@@ -512,13 +474,13 @@ func (m *Manager) sendReOrgHeader(header *types.Header, location string) {
 // getRegionIndex returns the location index of the reorgLocation
 func getRegionIndex(location string) int {
 	if location == "region-1" {
-		return 0
-	}
-	if location == "region-2" {
 		return 1
 	}
-	if location == "region-3" {
+	if location == "region-2" {
 		return 2
+	}
+	if location == "region-3" {
+		return 3
 	}
 	return -1
 }
@@ -812,7 +774,7 @@ func (m *Manager) SendClientsExtBlock(mined int, externalContexts []int, block *
 	for _, externalContext := range externalContexts {
 		for _, blockClient := range m.orderedBlockClients {
 			if blockClient.chainAvailable == true && blockClient.chainContext == externalContext {
-				blockClient.chainClient.SendExternalBlock(context.Background(), block, receiptBlock.Receipts(), big.NewInt(mined))
+				blockClient.chainClient.SendExternalBlock(context.Background(), block, receiptBlock.Receipts(), big.NewInt(int64(mined)))
 			}
 		}
 	}
