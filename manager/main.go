@@ -145,10 +145,10 @@ func main() {
 
 	go m.subscribeReOrg()
 
-	if config.Mine == true {
+	if config.Mine {
 		fmt.Println("Starting manager in location ", config.Location)
 		for _, blockClient := range m.orderedBlockClients {
-			if blockClient.chainAvailable == true {
+			if blockClient.chainAvailable {
 				go m.subscribePendingHeader(blockClient)
 			}
 		}
@@ -161,9 +161,9 @@ func main() {
 
 		go m.loopGlobalBlock()
 
-		for i := 0; i < len(m.miningClients); i++ {
-			if m.miningAvailable[i] {
-				m.fetchPendingBlocks(i)
+		for _, blockClient := range m.orderedBlockClients {
+			if blockClient.chainAvailable {
+				m.fetchPendingBlocks(blockClient)
 			}
 		}
 	}
@@ -197,7 +197,7 @@ func getMiningClients(config util.Config) []orderedBlockClient {
 			regionBlockClient := orderedBlockClient{}
 			regionClient, err := ethclient.Dial(regionURL)
 			if err != nil {
-				fmt.Println("Error connecting to Region mining node %d in location %b", URL, i)
+				fmt.Println("Error connecting to Region mining node ", URL, " in location ", i)
 			} else {
 				if i == int(config.Location[0]) {
 					regionBlockClient.chainAvailable = true
@@ -290,7 +290,7 @@ func (m *Manager) subscribeNewHead() {
 	m.subscribeNewHeadClient(m.orderedBlockClients[0].chainClient, prime, 0)
 	// subscribe to the region client on the mining location
 	for _, blockClient := range m.orderedBlockClients[1:types.ContextDepth] {
-		if blockClient.chainAvailable == true {
+		if blockClient.chainAvailable {
 			m.subscribeNewHeadClient(blockClient.chainClient, regions[m.location[0]-1], 1)
 			break
 		}
@@ -298,7 +298,7 @@ func (m *Manager) subscribeNewHead() {
 
 	// subscribe to external region contexts
 	for _, blockClient := range m.orderedBlockClients[1:types.ContextDepth] {
-		if blockClient.chainAvailable == false {
+		if !blockClient.chainAvailable {
 			m.subscribeNewHeadClient(blockClient.chainClient, regions[m.location[0]-1], 1)
 		}
 	}
@@ -381,7 +381,7 @@ func (m *Manager) subscribeReOrg() {
 	m.subscribeReOrgClients(m.orderedBlockClients[0].chainClient, prime, 0)
 	// for-if statement to loop over Region allClients and select available Region
 	for i := 1; i < len(m.orderedBlockClients[1:3]); i++ {
-		if m.orderedBlockClients[i].chainAvailable == true {
+		if m.orderedBlockClients[i].chainAvailable {
 			m.subscribeReOrgClients(m.orderedBlockClients[i].chainClient, regions[m.location[0]-1], 1)
 			break
 		}
@@ -389,7 +389,7 @@ func (m *Manager) subscribeReOrg() {
 
 	//subscribe to the regions from external contexts
 	for i := 1; i < len(m.orderedBlockClients[1:3]); i++ {
-		if m.orderedBlockClients[i].chainAvailable == false {
+		if !m.orderedBlockClients[i].chainAvailable {
 			m.subscribeReOrgClients(m.orderedBlockClients[i].chainClient, regions[m.location[0]-1], 1)
 		}
 	}
@@ -771,7 +771,7 @@ func (m *Manager) SendClientsMinedExtBlock(mined int, externalContexts []int, he
 func (m *Manager) SendClientsExtBlock(mined int, externalContexts []int, block *types.Block, receiptBlock *types.ReceiptBlock) {
 	for _, externalContext := range externalContexts {
 		for _, blockClient := range m.orderedBlockClients {
-			if blockClient.chainAvailable == true && blockClient.chainContext == externalContext {
+			if blockClient.chainAvailable && blockClient.chainContext == externalContext {
 				blockClient.chainClient.SendExternalBlock(context.Background(), block, receiptBlock.Receipts(), big.NewInt(int64(mined)))
 			}
 		}
@@ -784,7 +784,7 @@ func (m *Manager) SendMinedBlock(mined int, header *types.Header, wg *sync.WaitG
 	block := types.NewBlockWithHeader(receiptBlock.Header()).WithBody(receiptBlock.Transactions(), receiptBlock.Uncles())
 	if block != nil {
 		for _, blockClient := range m.orderedBlockClients {
-			if blockClient.chainAvailable == true && blockClient.chainContext == mined {
+			if blockClient.chainAvailable && blockClient.chainContext == mined {
 				sealed := block.WithSeal(header)
 				blockClient.chainClient.SendMinedBlock(context.Background(), sealed, true, true)
 			}
