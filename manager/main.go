@@ -187,6 +187,7 @@ func getMiningClients(config util.Config) []orderedBlockClient {
 		primeClient, err := ethclient.Dial(config.PrimeURL)
 		if err != nil {
 			fmt.Println("Error connecting to Prime mining node")
+			fmt.Println(err)
 		} else {
 			primeBlockClient.chainAvailable = true
 			primeBlockClient.chainClient = primeClient
