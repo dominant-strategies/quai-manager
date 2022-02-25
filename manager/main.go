@@ -104,6 +104,7 @@ func main() {
 	if len(allClients) < 13 {
 		fmt.Println("some or all connections not succeeded")
 		fmt.Println("connections succeeded ", allClients)
+		fmt.Println("test your internect connection and/or that you have go-quai set up properly")
 	}
 
 	header := &types.Header{
@@ -293,21 +294,11 @@ func (m *Manager) subscribeNewHead() {
 	prime := "prime"
 	regions := [3]string{"region-1", "region-2", "region-3"}
 
-	// subscribe to the prime client
+	// subscribe to the prime client at context 0
 	m.subscribeNewHeadClient(m.orderedBlockClients[0].chainClient, prime, 0)
-	// subscribe to the region client on the mining location
+	// subscribe to the region clients
 	for _, blockClient := range m.orderedBlockClients[1:types.ContextDepth] {
-		if blockClient.chainAvailable {
-			m.subscribeNewHeadClient(blockClient.chainClient, regions[m.location[0]-1], 1)
-			break
-		}
-	}
-
-	// subscribe to external region contexts
-	for _, blockClient := range m.orderedBlockClients[1:types.ContextDepth] {
-		if !blockClient.chainAvailable {
-			m.subscribeNewHeadClient(blockClient.chainClient, regions[m.location[0]-1], 1)
-		}
+		m.subscribeNewHeadClient(blockClient.chainClient, regions[m.location[0]-1], 1)
 	}
 }
 
