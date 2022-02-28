@@ -56,7 +56,7 @@ type Manager struct {
 
 // Block struct to hold all Client fields.
 type orderedBlockClient struct {
-	chainAvailable bool
+	chainAvailable string
 	chainMining    bool
 	chainClient    *ethclient.Client
 	chainContext   int
@@ -160,7 +160,7 @@ func main() {
 				go m.subscribePendingHeader(blockClient)
 			}
 		}
-		// next point of work
+
 		go m.resultLoop()
 
 		go m.miningLoop()
@@ -170,7 +170,7 @@ func main() {
 		go m.loopGlobalBlock()
 
 		for _, blockClient := range m.orderedBlockClients {
-			if blockClient.chainAvailable {
+			if checkConnection(blockClient.chainAvailable) {
 				m.fetchPendingBlocks(blockClient)
 			}
 		}
@@ -186,14 +186,13 @@ func getMiningClients(config util.Config) []orderedBlockClient {
 	// add Prime to orderedBlockClient array at [0]
 	if config.PrimeURL != "" {
 		primeBlockClient := orderedBlockClient{}
+		primeBlockClient.chainAvailable = config.PrimeURL
 		primeClient, err := ethclient.Dial(config.PrimeURL)
 		if err != nil {
 			fmt.Println("Error connecting to Prime mining node")
 			fmt.Println(err)
-			primeBlockClient.chainAvailable = false
 		} else {
 			primeBlockClient.chainMining = true
-			primeBlockClient.chainAvailable = true
 			primeBlockClient.chainClient = primeClient
 			primeBlockClient.chainContext = 0
 			allClients = append(allClients, primeBlockClient)
@@ -206,10 +205,10 @@ func getMiningClients(config util.Config) []orderedBlockClient {
 		regionURL := URL
 		if regionURL != "" {
 			regionBlockClient := orderedBlockClient{}
+			regionBlockClient.chainAvailable = regionURL
 			regionClient, err := ethclient.Dial(regionURL)
 			if err != nil {
 				fmt.Println("Error connecting to Region mining node ", URL, " in location ", i)
-				regionBlockClient.chainAvailable = false
 			} else {
 				if i == int(config.Location[0]) {
 					regionBlockClient.chainMining = true
@@ -229,10 +228,10 @@ func getMiningClients(config util.Config) []orderedBlockClient {
 		for j, zoneURL := range zonesURLs {
 			if zoneURL != "" {
 				zoneBlockClient := orderedBlockClient{}
+				zoneBlockClient.chainAvailable = zoneURL
 				zoneClient, err := ethclient.Dial(zoneURL)
 				if err != nil {
 					fmt.Println("Error connecting to Zone mining node")
-					zoneBlockClient.chainAvailable = false
 				} else {
 					if i == int(config.Location[0]) && j == int(config.Location[1]) {
 						zoneBlockClient.chainMining = true
@@ -384,7 +383,7 @@ func (m *Manager) subscribeReOrg() {
 	m.subscribeReOrgClients(m.orderedBlockClients[0].chainClient, prime, 0)
 	// for-if statement to loop over Region allClients and select available Region
 	for i := 1; i < len(m.orderedBlockClients[1:3]); i++ {
-		if m.orderedBlockClients[i].chainAvailable {
+		if m.orderedBlockClients[i].chainMining {
 			m.subscribeReOrgClients(m.orderedBlockClients[i].chainClient, regions[m.location[0]-1], 1)
 			break
 		}
@@ -392,7 +391,7 @@ func (m *Manager) subscribeReOrg() {
 
 	//subscribe to the regions from external contexts
 	for i := 1; i < len(m.orderedBlockClients[1:3]); i++ {
-		if !m.orderedBlockClients[i].chainAvailable {
+		if !m.orderedBlockClients[i].chainMining {
 			m.subscribeReOrgClients(m.orderedBlockClients[i].chainClient, regions[m.location[0]-1], 1)
 		}
 	}
@@ -774,7 +773,7 @@ func (m *Manager) SendClientsMinedExtBlock(mined int, externalContexts []int, he
 func (m *Manager) SendClientsExtBlock(mined int, externalContexts []int, block *types.Block, receiptBlock *types.ReceiptBlock) {
 	for _, externalContext := range externalContexts {
 		for _, blockClient := range m.orderedBlockClients {
-			if blockClient.chainAvailable && blockClient.chainContext == externalContext {
+			if checkConnection(blockClient.chainAvailable) && blockClient.chainContext == externalContext {
 				blockClient.chainClient.SendExternalBlock(context.Background(), block, receiptBlock.Receipts(), big.NewInt(int64(mined)))
 			}
 		}
@@ -787,11 +786,23 @@ func (m *Manager) SendMinedBlock(mined int, header *types.Header, wg *sync.WaitG
 	block := types.NewBlockWithHeader(receiptBlock.Header()).WithBody(receiptBlock.Transactions(), receiptBlock.Uncles())
 	if block != nil {
 		for _, blockClient := range m.orderedBlockClients {
-			if blockClient.chainAvailable && blockClient.chainContext == mined {
+			if checkConnection(blockClient.chainAvailable) && blockClient.chainMining {
 				sealed := block.WithSeal(header)
 				blockClient.chainClient.SendMinedBlock(context.Background(), sealed, true, true)
 			}
 		}
 	}
 	defer wg.Done()
+}
+
+// Checks if a connection is still there on orderedBlockClient.chainAvailable
+func checkConnection(url string) bool {
+	_, err := ethclient.Dial(url)
+	if err != nil {
+		fmt.Println("Error: connection lost")
+		fmt.Println(err)
+		return false
+	} else {
+		return true
+	}
 }
