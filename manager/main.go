@@ -170,7 +170,7 @@ func main() {
 		go m.loopGlobalBlock()
 
 		for _, blockClient := range m.orderedBlockClients {
-			if checkConnection(blockClient.chainAvailable) {
+			if blockClient.chainMining && checkConnection(blockClient.chainAvailable) {
 				m.fetchPendingBlocks(blockClient)
 			}
 		}
