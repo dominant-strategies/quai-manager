@@ -781,12 +781,12 @@ func (m *Manager) SendClientsExtBlock(mined int, externalContexts []int, block *
 }
 
 // SendMinedBlock sends the mined block to its mining client with the transactions, uncles, and receipts.
-func (m *Manager) SendMinedBlock(mined int, header *types.Header, wg *sync.WaitGroup) {
-	receiptBlock := m.pendingBlocks[mined]
+func (m *Manager) SendMinedBlock(miningContext int, header *types.Header, wg *sync.WaitGroup) {
+	receiptBlock := m.pendingBlocks[miningContext]
 	block := types.NewBlockWithHeader(receiptBlock.Header()).WithBody(receiptBlock.Transactions(), receiptBlock.Uncles())
 	if block != nil {
 		for _, blockClient := range m.orderedBlockClients {
-			if checkConnection(blockClient.chainAvailable) && blockClient.chainMining {
+			if checkConnection(blockClient.chainAvailable) && blockClient.chainMining && blockClient.chainContext == miningContext {
 				sealed := block.WithSeal(header)
 				blockClient.chainClient.SendMinedBlock(context.Background(), sealed, true, true)
 			}
