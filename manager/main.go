@@ -57,6 +57,7 @@ type Manager struct {
 // Block struct to hold all Client fields.
 type orderedBlockClient struct {
 	chainAvailable bool
+	chainMining    bool
 	chainClient    *ethclient.Client
 	chainContext   int
 }
@@ -155,7 +156,7 @@ func main() {
 	if config.Mine {
 		fmt.Println("Starting manager in location ", config.Location)
 		for _, blockClient := range m.orderedBlockClients {
-			if blockClient.chainAvailable {
+			if blockClient.chainMining {
 				go m.subscribePendingHeader(blockClient)
 			}
 		}
@@ -189,7 +190,9 @@ func getMiningClients(config util.Config) []orderedBlockClient {
 		if err != nil {
 			fmt.Println("Error connecting to Prime mining node")
 			fmt.Println(err)
+			primeBlockClient.chainAvailable = false
 		} else {
+			primeBlockClient.chainMining = true
 			primeBlockClient.chainAvailable = true
 			primeBlockClient.chainClient = primeClient
 			primeBlockClient.chainContext = 0
@@ -206,11 +209,12 @@ func getMiningClients(config util.Config) []orderedBlockClient {
 			regionClient, err := ethclient.Dial(regionURL)
 			if err != nil {
 				fmt.Println("Error connecting to Region mining node ", URL, " in location ", i)
+				regionBlockClient.chainAvailable = false
 			} else {
 				if i == int(config.Location[0]) {
-					regionBlockClient.chainAvailable = true
+					regionBlockClient.chainMining = true
 				} else {
-					regionBlockClient.chainAvailable = false
+					regionBlockClient.chainMining = false
 				}
 				regionBlockClient.chainClient = regionClient
 				regionBlockClient.chainContext = 1
@@ -228,11 +232,12 @@ func getMiningClients(config util.Config) []orderedBlockClient {
 				zoneClient, err := ethclient.Dial(zoneURL)
 				if err != nil {
 					fmt.Println("Error connecting to Zone mining node")
+					zoneBlockClient.chainAvailable = false
 				} else {
 					if i == int(config.Location[0]) && j == int(config.Location[1]) {
-						zoneBlockClient.chainAvailable = true
+						zoneBlockClient.chainMining = true
 					} else {
-						zoneBlockClient.chainAvailable = false
+						zoneBlockClient.chainMining = false
 					}
 					zoneBlockClient.chainClient = zoneClient
 					zoneBlockClient.chainContext = 2
