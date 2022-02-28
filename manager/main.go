@@ -773,7 +773,7 @@ func (m *Manager) SendClientsMinedExtBlock(mined int, externalContexts []int, he
 func (m *Manager) SendClientsExtBlock(mined int, externalContexts []int, block *types.Block, receiptBlock *types.ReceiptBlock) {
 	for _, externalContext := range externalContexts {
 		for _, blockClient := range m.orderedBlockClients {
-			if checkConnection(blockClient.chainAvailable) && blockClient.chainContext == externalContext {
+			if checkConnection(blockClient.chainAvailable) && !blockClient.chainMining && blockClient.chainContext == externalContext {
 				blockClient.chainClient.SendExternalBlock(context.Background(), block, receiptBlock.Receipts(), big.NewInt(int64(mined)))
 			}
 		}
