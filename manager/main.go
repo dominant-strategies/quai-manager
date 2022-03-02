@@ -479,8 +479,8 @@ func (m *Manager) subscribeReOrgClients(client *ethclient.Client, available bool
 		case reOrgData := <-reOrgData:
 			heavier := compareReorgDifficulty(reOrgData.ReOrgHeader, reOrgData.OldChainHeaders, reOrgData.NewChainHeaders, difficultyContext)
 			if heavier {
-				if len(reOrgData.NewChainHeaders) > 1 {
-					m.sendReOrgHeader(reOrgData.NewChainHeaders[len(reOrgData.NewChainHeaders)-2], location)
+				if len(reOrgData.OldChainHeaders) > 1 {
+					m.sendReOrgHeader(reOrgData.OldChainHeaders[len(reOrgData.OldChainHeaders)-2], location)
 				}
 			}
 		}
