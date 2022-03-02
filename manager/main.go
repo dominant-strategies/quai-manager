@@ -269,6 +269,9 @@ func (m *Manager) subscribePendingHeader(client orderedBlockClient) {
 	// wait until sync is nil to continue
 	for checkSync != nil && err == nil {
 		checkSync, err = client.chainClient.SyncProgress(context.Background())
+		if err != nil {
+			fmt.Println("error during syncing: ", err, checkSync)
+		}
 	}
 
 	// subscribe to the pending block only if not synching
