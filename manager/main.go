@@ -450,7 +450,11 @@ func (m *Manager) subscribeReOrgClients(client *ethclient.Client, location strin
 		case reOrgData := <-reOrgData:
 			heavier := compareReorgDifficulty(reOrgData.ReOrgHeader, reOrgData.OldChainHeaders, reOrgData.NewChainHeaders, difficultyContext)
 			if heavier {
-				m.sendReOrgHeader(reOrgData.NewChainHeaders[len(reOrgData.NewChainHeaders)-2], location)
+				if len(reOrgData.NewChainHeaders) == 1 {
+					m.sendReOrgHeader(reOrgData.NewChainHeaders[0], location)
+				} else {
+					m.sendReOrgHeader(reOrgData.NewChainHeaders[len(reOrgData.NewChainHeaders)-2], location)
+				}
 			}
 		}
 	}
