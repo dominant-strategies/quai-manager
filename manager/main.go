@@ -99,10 +99,10 @@ func main() {
 		config.Mine = mine == 1
 	}
 	// Get URLs for all chains and set mining bools; if true then mine
-	allClients := getMiningClients(config)
+	allClients, intendedCount := getMiningClients(config)
 
 	// errror handling in case any connections failed
-	if len(allClients) < 13 {
+	if len(allClients) < intendedCount {
 		fmt.Println("some or all connections not succeeded")
 		fmt.Println("connections succeeded ", allClients)
 		fmt.Println("test your internect connection and/or that you have go-quai set up properly")
@@ -180,11 +180,13 @@ func main() {
 
 // getMiningClients takes in a config and retrieves the Prime, Region, and Zone client
 // that is used for mining in a slice.
-func getMiningClients(config util.Config) []orderedBlockClient {
+func getMiningClients(config util.Config) ([]orderedBlockClient, int) {
 	allClients := []orderedBlockClient{}
+	var intendedCount int = 0 // count how many connections there should be for error checking
 
 	// add Prime to orderedBlockClient array at [0]
 	if config.PrimeURL != "" {
+		intendedCount++
 		primeBlockClient := orderedBlockClient{}
 		primeBlockClient.chainAvailable = config.PrimeURL
 		primeClient, err := ethclient.Dial(config.PrimeURL)
@@ -204,6 +206,7 @@ func getMiningClients(config util.Config) []orderedBlockClient {
 	for i, URL := range config.RegionURLs {
 		regionURL := URL
 		if regionURL != "" {
+			intendedCount++
 			regionBlockClient := orderedBlockClient{}
 			regionBlockClient.chainAvailable = regionURL
 			regionClient, err := ethclient.Dial(regionURL)
@@ -227,6 +230,7 @@ func getMiningClients(config util.Config) []orderedBlockClient {
 	for i, zonesURLs := range config.ZoneURLs {
 		for j, zoneURL := range zonesURLs {
 			if zoneURL != "" {
+				intendedCount++
 				zoneBlockClient := orderedBlockClient{}
 				zoneBlockClient.chainAvailable = zoneURL
 				zoneClient, err := ethclient.Dial(zoneURL)
@@ -245,7 +249,7 @@ func getMiningClients(config util.Config) []orderedBlockClient {
 			}
 		}
 	}
-	return allClients
+	return allClients, intendedCount
 }
 
 // subscribePendingHeader subscribes to the head of the mining nodes in order to pass
