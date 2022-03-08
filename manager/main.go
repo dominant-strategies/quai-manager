@@ -156,7 +156,7 @@ func main() {
 	if config.Mine {
 		fmt.Println("Starting manager in location ", config.Location)
 		for _, blockClient := range m.orderedBlockClients {
-			if blockClient.chainMining {
+			if blockClient.chainMining == true {
 				go m.subscribePendingHeader(blockClient)
 			}
 		}
@@ -170,7 +170,7 @@ func main() {
 		go m.loopGlobalBlock()
 
 		for _, blockClient := range m.orderedBlockClients {
-			if blockClient.chainMining && checkConnection(blockClient.chainAvailable) {
+			if blockClient.chainMining == true && checkConnection(blockClient.chainAvailable) {
 				m.fetchPendingBlocks(blockClient)
 			}
 		}
@@ -390,7 +390,7 @@ func (m *Manager) subscribeReOrg() {
 	m.subscribeReOrgClients(m.orderedBlockClients[0].chainClient, prime, 0)
 	// for-if statement to loop over Region allClients and select available Region
 	for i := 1; i < len(m.orderedBlockClients[1:3]); i++ {
-		if m.orderedBlockClients[i].chainMining {
+		if m.orderedBlockClients[i].chainMining == true {
 			m.subscribeReOrgClients(m.orderedBlockClients[i].chainClient, regions[m.location[0]-1], 1)
 			break
 		}
@@ -398,7 +398,7 @@ func (m *Manager) subscribeReOrg() {
 
 	//subscribe to the regions from external contexts
 	for i := 1; i < len(m.orderedBlockClients[1:3]); i++ {
-		if !m.orderedBlockClients[i].chainMining {
+		if m.orderedBlockClients[i].chainMining == false {
 			m.subscribeReOrgClients(m.orderedBlockClients[i].chainClient, regions[m.location[0]-1], 1)
 		}
 	}
@@ -786,7 +786,7 @@ func (m *Manager) SendClientsMinedExtBlock(mined int, externalContexts []int, he
 func (m *Manager) SendClientsExtBlock(mined int, externalContexts []int, block *types.Block, receiptBlock *types.ReceiptBlock) {
 	for _, externalContext := range externalContexts {
 		for _, blockClient := range m.orderedBlockClients {
-			if checkConnection(blockClient.chainAvailable) && !blockClient.chainMining && blockClient.chainContext == externalContext {
+			if checkConnection(blockClient.chainAvailable) && blockClient.chainMining == false && blockClient.chainContext == externalContext {
 				blockClient.chainClient.SendExternalBlock(context.Background(), block, receiptBlock.Receipts(), big.NewInt(int64(mined)))
 			}
 		}
@@ -799,7 +799,7 @@ func (m *Manager) SendMinedBlock(miningContext int, header *types.Header, wg *sy
 	block := types.NewBlockWithHeader(receiptBlock.Header()).WithBody(receiptBlock.Transactions(), receiptBlock.Uncles())
 	if block != nil {
 		for _, blockClient := range m.orderedBlockClients {
-			if checkConnection(blockClient.chainAvailable) && blockClient.chainMining && blockClient.chainContext == miningContext {
+			if checkConnection(blockClient.chainAvailable) && blockClient.chainMining == true && blockClient.chainContext == miningContext {
 				sealed := block.WithSeal(header)
 				blockClient.chainClient.SendMinedBlock(context.Background(), sealed, true, true)
 			}
