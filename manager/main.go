@@ -509,7 +509,7 @@ func (m *Manager) fetchPendingBlocks(client orderedBlockClient) {
 	receiptBlock, err = client.chainClient.GetPendingBlock(context.Background())
 
 	// check for stale headers and refetch the latest header
-	if receiptBlock.Header().Number[sliceIndex] == m.combinedHeader.Number[sliceIndex] && err == nil {
+	if receiptBlock != nil && receiptBlock.Header().Number[sliceIndex] == m.combinedHeader.Number[sliceIndex] && err == nil {
 		switch sliceIndex {
 		case 0:
 			log.Println("Expected header numbers don't match for Prime at block height", receiptBlock.Header().Number[0])
