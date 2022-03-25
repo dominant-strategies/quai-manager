@@ -155,7 +155,7 @@ func main() {
 	if config.Mine {
 		log.Println("Starting manager in location ", config.Location)
 		for _, blockClient := range m.orderedBlockClients {
-			if blockClient.chainMining == true {
+			if blockClient.chainMining {
 				go m.subscribePendingHeader(blockClient)
 			}
 		}
@@ -169,7 +169,7 @@ func main() {
 		go m.loopGlobalBlock()
 
 		for _, blockClient := range m.orderedBlockClients {
-			if blockClient.chainMining == true && checkConnection(blockClient.chainAvailable) {
+			if blockClient.chainMining && checkConnection(blockClient.chainClient) {
 				m.fetchPendingBlocks(blockClient)
 			}
 		}
@@ -723,7 +723,7 @@ func (m *Manager) resultLoop() error {
 
 			// Check to see that all nodes are running before sending blocks to them.
 			for _, blockClient := range m.orderedBlockClients {
-				if !checkConnection(blockClient.chainAvailable) {
+				if !checkConnection(blockClient.chainClient) {
 					log.Println("Chain unavailable, for URL", blockClient.chainAvailable, "continuing...")
 					continue
 				}
@@ -826,8 +826,8 @@ func (m *Manager) SendMinedBlock(miningContext int, header *types.Header, wg *sy
 }
 
 // Checks if a connection is still there on orderedBlockClient.chainAvailable
-func checkConnection(url string) bool {
-	_, err := ethclient.Dial(url)
+func checkConnection(client *ethclient.Client) bool {
+	_, err := client.HeaderByNumber(context.Background(), nil)
 	if err != nil {
 		log.Println("Error: connection lost")
 		log.Println(err)
