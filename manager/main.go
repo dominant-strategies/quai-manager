@@ -1,6 +1,7 @@
 package main
 
 import (
+	"bytes"
 	"context"
 	"encoding/binary"
 	"errors"
@@ -151,6 +152,8 @@ func main() {
 	go m.subscribeNewHead()
 
 	go m.subscribeReOrg()
+
+	go m.subscribeMissingExternalBlock()
 
 	if config.Mine {
 		log.Println("Starting manager in location ", config.Location)
@@ -403,6 +406,14 @@ func (m *Manager) subscribeReOrg() {
 	}
 }
 
+func (m *Manager) subscribeMissingExternalBlock() {
+	for _, client := range m.orderedBlockClients {
+		if client.chainAvailable != "" {
+			m.subscribeMissingExternalBlockClient(client.chainClient)
+		}
+	}
+}
+
 // checkNonceEmpty checks if any of the headers have empty nonce
 func checkNonceEmpty(commonHead *types.Header, oldChain, newChain []*types.Header) bool {
 	if commonHead.Nonce == (types.BlockNonce{}) {
@@ -461,6 +472,80 @@ func (m *Manager) subscribeReOrgClients(client *ethclient.Client, location strin
 					m.sendReOrgHeader(reOrgData.OldChainHeaders[len(reOrgData.OldChainHeaders)-2], location)
 				}
 			}
+		}
+	}
+}
+
+func (m *Manager) subscribeMissingExternalBlockClient(client *ethclient.Client) {
+	missingExternalBlockCh := make(chan *types.Header)
+	sub, err := client.SubscribeMissingExternalBlock(context.Background(), missingExternalBlockCh)
+	if err != nil {
+		log.Fatal("Failed to subscribe to missing external block notifications", err)
+	}
+	defer sub.Unsubscribe()
+
+	for {
+		select {
+		case missingExternalBlock := <-missingExternalBlockCh:
+			location := missingExternalBlock.Location
+			var index int
+			var ctx int64
+			switch {
+			case bytes.Equal(location, []byte{0, 0}):
+				index = 0
+				ctx = 0
+			case bytes.Equal(location, []byte{1, 0}):
+				index = 1
+				ctx = 1
+			case bytes.Equal(location, []byte{1, 1}):
+				index = 2
+				ctx = 2
+			case bytes.Equal(location, []byte{1, 2}):
+				index = 3
+				ctx = 2
+			case bytes.Equal(location, []byte{1, 3}):
+				index = 4
+				ctx = 2
+			case bytes.Equal(location, []byte{2, 0}):
+				index = 5
+				ctx = 1
+			case bytes.Equal(location, []byte{2, 1}):
+				index = 6
+				ctx = 2
+			case bytes.Equal(location, []byte{2, 2}):
+				index = 7
+				ctx = 2
+			case bytes.Equal(location, []byte{2, 3}):
+				index = 8
+				ctx = 2
+			case bytes.Equal(location, []byte{3, 0}):
+				index = 9
+				ctx = 1
+			case bytes.Equal(location, []byte{3, 1}):
+				index = 10
+				ctx = 2
+			case bytes.Equal(location, []byte{3, 2}):
+				index = 11
+				ctx = 2
+			case bytes.Equal(location, []byte{3, 3}):
+				index = 12
+				ctx = 2
+			}
+			block, err := m.orderedBlockClients[index].chainClient.BlockByHash(context.Background(), missingExternalBlock.Hash())
+			if err != nil {
+				log.Print("Failed to get block from chain in ", location, err)
+				continue
+			}
+			receipts, err := m.orderedBlockClients[index].chainClient.GetBlockReceipts(context.Background(), missingExternalBlock.Hash())
+			if err != nil {
+				log.Print("Failed to get block receipts from chain in ", location, err)
+				continue
+			}
+			if err := client.SendExternalBlock(context.Background(), block, receipts.Receipts(), big.NewInt(ctx)); err != nil {
+				log.Print("Failed to send external block to chain in ", location, err)
+				continue
+			}
+
 		}
 	}
 }
