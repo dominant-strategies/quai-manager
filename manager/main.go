@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/binary"
 	"errors"
+	"fmt"
 	"log"
 	"math/big"
 	"math/rand"
@@ -67,18 +68,22 @@ func main() {
 		log.Fatal("cannot load config:", err)
 	}
 
-	if len(os.Args) > 3 {
+	// Get URLs for all chains and set mining bools; if true then mine
+	// getting clients comes first because manager can poll chains for auto-mine
+	allClients, intendedCount := getMiningClients(config)
+
+	// errror handling in case any connections failed
+	if len(allClients) < intendedCount {
+		log.Println("some or all connections not succeeded")
+		log.Println("connections succeeded ", allClients)
+		log.Println("test your internect connection and/or that you have go-quai set up properly")
+	}
+
+	// set mining location
+	// if using the run-mine command then must remember to set region and zone locations
+	// if using run then the manager will automatically follow the chain with lowest difficulty
+	if len(os.Args) > 2 { // if run-mine
 		location := os.Args[1:3]
-
-		mine, _ := strconv.Atoi(os.Args[3:][0])
-
-		if len(location) == 0 {
-			log.Fatal("Please mention the location where you want to mine")
-		}
-
-		if len(location) == 1 {
-			log.Fatal("You are missing either the region or zone location")
-		}
 
 		if len(location) > 2 {
 			log.Fatal("Only specify 2 values for the location")
@@ -95,16 +100,10 @@ func main() {
 		binary.LittleEndian.PutUint64(ZoneLocArr, uint64(zoneLoc))
 
 		config.Location = []byte{RegionLocArr[0], ZoneLocArr[0]}
-		config.Mine = mine == 1
-	}
-	// Get URLs for all chains and set mining bools; if true then mine
-	allClients, intendedCount := getMiningClients(config)
-
-	// errror handling in case any connections failed
-	if len(allClients) < intendedCount {
-		log.Println("some or all connections not succeeded")
-		log.Println("connections succeeded ", allClients)
-		log.Println("test your internect connection and/or that you have go-quai set up properly")
+		config.Mine = true
+	} else { // if run
+		config.Location = findBestLocation(allClients)
+		config.Mine = true
 	}
 
 	header := &types.Header{
@@ -795,6 +794,7 @@ func (m *Manager) SendClientsExtBlock(mined int, externalContexts []int, block *
 	for _, blockClient := range m.orderedBlockClients {
 		if (blockClient.chainMining && contains(externalContexts, blockClient.chainContext)) || !blockClient.chainMining {
 			blockClient.chainClient.SendExternalBlock(context.Background(), block, receiptBlock.Receipts(), big.NewInt(int64(mined)))
+
 		}
 	}
 }
@@ -834,4 +834,59 @@ func checkConnection(client *ethclient.Client) bool {
 	} else {
 		return true
 	}
+}
+
+func findBestLocation(clients []orderedBlockClient) []byte {
+	var lowestRegion uint64 = 0 // integer for holding lowest Region difficulty
+	var lowestZone uint64 = 0   // integer for holding lowest Zone difficulty
+	var regionLocation int      // remember to return location as []byte with Zone1-1 = [1,1]
+	var zoneLocation int
+
+	// first find the Region chain with lowest difficulty
+	for i, client := range clients[1:4] {
+		latestHeader, err := client.chainClient.HeaderByNumber(context.Background(), nil)
+		if err != nil {
+			log.Println("Error: connection lost during request")
+			log.Println(err)
+		} else {
+			difficulty := latestHeader.Difficulty[1].Uint64()
+			if lowestRegion == 0 { // set first Region difficulty for comparison if not already set
+				regionLocation = 1
+				lowestRegion = difficulty
+			} else {
+				if difficulty < lowestRegion {
+					regionLocation = i + 1
+					lowestRegion = difficulty
+				}
+			}
+			fmt.Println("region ", i+1, " difficulty ", difficulty)
+		}
+	}
+	// next find Zone chain inside Region with lowest difficulty
+	for i, client := range clients[(regionLocation*3)+1 : (regionLocation*3)+4] {
+		latestHeader, err := client.chainClient.HeaderByNumber(context.Background(), nil)
+		if err != nil {
+			log.Println("Error: connect lost during request")
+			log.Println(err)
+		} else {
+			difficulty := latestHeader.Difficulty[2].Uint64()
+			if lowestZone == 0 {
+				zoneLocation = 1
+				lowestZone = difficulty
+			} else {
+				if difficulty < lowestZone {
+					zoneLocation = i + 1
+					lowestZone = difficulty
+				}
+			}
+			fmt.Println("zone ", i+1, " difficulty ", difficulty)
+		}
+	}
+	fmt.Println("Region location selected: ", regionLocation)
+	fmt.Println("Zone location selected: ", zoneLocation)
+	regionBytes := make([]byte, 8)
+	zoneBytes := make([]byte, 8)
+	binary.LittleEndian.PutUint64(regionBytes, uint64(regionLocation))
+	binary.LittleEndian.PutUint64(zoneBytes, uint64(zoneLocation))
+	return []byte{regionBytes[0], zoneBytes[0]}
 }
