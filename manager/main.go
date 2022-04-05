@@ -795,7 +795,6 @@ func (m *Manager) SendClientsExtBlock(mined int, externalContexts []int, block *
 	for _, blockClient := range m.orderedBlockClients {
 		if (blockClient.chainMining && contains(externalContexts, blockClient.chainContext)) || !blockClient.chainMining {
 			blockClient.chainClient.SendExternalBlock(context.Background(), block, receiptBlock.Receipts(), big.NewInt(int64(mined)))
-
 		}
 	}
 }
