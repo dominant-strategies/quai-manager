@@ -28,6 +28,9 @@ import (
 const (
 	// resultQueueSize is the size of channel listening to sealing result.
 	resultQueueSize = 10
+
+	// index of the regions for the order block clients
+	orderedRegionIndex = 4
 )
 
 var exit = make(chan bool)
@@ -306,10 +309,10 @@ func (m *Manager) subscribeNewHead() {
 	regions := [3]string{"region-1", "region-2", "region-3"}
 
 	// subscribe to the prime client at context 0
-	m.subscribeNewHeadClient(m.orderedBlockClients[0].chainClient, prime, 0)
+	go m.subscribeNewHeadClient(m.orderedBlockClients[0].chainClient, prime, 0)
 	// subscribe to the region clients
-	for _, blockClient := range m.orderedBlockClients[1:types.ContextDepth] {
-		m.subscribeNewHeadClient(blockClient.chainClient, regions[m.location[0]-1], 1)
+	for _, blockClient := range m.orderedBlockClients[1:orderedRegionIndex] {
+		go m.subscribeNewHeadClient(blockClient.chainClient, regions[m.location[0]-1], 1)
 	}
 }
 
@@ -326,7 +329,6 @@ func (m *Manager) subscribeNewHeadClient(client *ethclient.Client, location stri
 		select {
 		case newHead := <-newHeadChannel:
 			// get the block and receipt block
-			log.Println("Retrieved new head", "hash", newHead.Hash())
 			block, err := client.BlockByHash(context.Background(), newHead.Hash())
 			if err != nil {
 				log.Println("Failed to retrieve block for hash", "hash ", newHead.Hash())
@@ -387,20 +389,13 @@ func (m *Manager) subscribeReOrg() {
 
 	// subscribe to the prime and region clients
 	// prime is always true so simply directly subscribe
-	m.subscribeReOrgClients(m.orderedBlockClients[0].chainClient, prime, 0)
-	// for-if statement to loop over Region allClients and select available Region
-	for i := 1; i < len(m.orderedBlockClients[1:3]); i++ {
-		if m.orderedBlockClients[i].chainMining == true {
-			m.subscribeReOrgClients(m.orderedBlockClients[i].chainClient, regions[m.location[0]-1], 1)
-			break
-		}
-	}
+	go m.subscribeReOrgClients(m.orderedBlockClients[0].chainClient, prime, 0)
+	go m.subscribeUncleClients(m.orderedBlockClients[0].chainClient, prime, 0)
 
-	//subscribe to the regions from external contexts
-	for i := 1; i < len(m.orderedBlockClients[1:3]); i++ {
-		if m.orderedBlockClients[i].chainMining == false {
-			m.subscribeReOrgClients(m.orderedBlockClients[i].chainClient, regions[m.location[0]-1], 1)
-		}
+	// subscribe to the regions from external contexts
+	for _, client := range m.orderedBlockClients[1:orderedRegionIndex] {
+		go m.subscribeReOrgClients(client.chainClient, regions[m.location[0]-1], 1)
+		go m.subscribeUncleClients(client.chainClient, regions[m.location[0]-1], 1)
 	}
 }
 
@@ -467,7 +462,7 @@ func (m *Manager) subscribeReOrgClients(client *ethclient.Client, location strin
 }
 
 func (m *Manager) subscribeUncleClients(client *ethclient.Client, location string, difficultyContext int) {
-	sideEvent := make(chan core.ChainSideEvent, 10)
+	sideEvent := make(chan core.ChainSideEvent, 1)
 	sub, err := client.SubscribeChainSideEvent(context.Background(), sideEvent)
 	if err != nil {
 		log.Fatal("Failed to subscribe to the side event notifications in", location, err)
@@ -477,7 +472,8 @@ func (m *Manager) subscribeUncleClients(client *ethclient.Client, location strin
 	for {
 		select {
 		case sideEvent := <-sideEvent:
-			m.sendReOrgHeader(sideEvent.Block.Header(), location)
+			fmt.Println("SideEvent", sideEvent.Block)
+			// m.sendReOrgHeader(sideEvent.Block.Header(), location)
 		}
 	}
 }
@@ -490,7 +486,7 @@ func (m *Manager) sendReOrgHeader(header *types.Header, location string) {
 		for _, blockClient := range m.orderedBlockClients[1:] { // start at 1 to skip Prime
 			blockClient.chainClient.SendReOrgData(context.Background(), header) // all clients pass thru regardless if mining
 		}
-	} else { // regions
+	} else if location == "region" { // regions
 		// only subscribe to the zones
 		// send to the zone chain in the mining client and send to two other chains in the external clients
 		for _, blockClient := range m.orderedBlockClients[4:] {
@@ -696,7 +692,7 @@ func (m *Manager) miningLoop() error {
 
 // WatchHashRate is a simple method to watch the hashrate of our miner and log the output.
 func (m *Manager) SubmitHashRate() {
-	ticker := time.NewTicker(10 * time.Second)
+	ticker := time.NewTicker(60 * time.Second)
 
 	// generating random ID to submit in the SubmitHashRate method
 	randomId := rand.Int()
@@ -711,7 +707,7 @@ func (m *Manager) SubmitHashRate() {
 			case <-ticker.C:
 				hashRate := m.engine.Hashrate()
 				if hashRate != null {
-					fmt.Println(hashRate)
+					log.Println("Quai Miner - current hashes per second: ", hashRate)
 					m.engine.SubmitHashrate(hexutil.Uint64(hashRate), id)
 				}
 			}
