@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/binary"
 	"errors"
+	"fmt"
 	"log"
 	"math/big"
 	"math/rand"
@@ -465,6 +466,22 @@ func (m *Manager) subscribeReOrgClients(client *ethclient.Client, location strin
 	}
 }
 
+func (m *Manager) subscribeUncleClients(client *ethclient.Client, location string, difficultyContext int) {
+	sideEvent := make(chan core.ChainSideEvent, 10)
+	sub, err := client.SubscribeChainSideEvent(context.Background(), sideEvent)
+	if err != nil {
+		log.Fatal("Failed to subscribe to the side event notifications in", location, err)
+	}
+	defer sub.Unsubscribe()
+
+	for {
+		select {
+		case sideEvent := <-sideEvent:
+			m.sendReOrgHeader(sideEvent.Block.Header(), location)
+		}
+	}
+}
+
 // sendReOrgHeader sends the reorg header to the respective region and zone clients
 func (m *Manager) sendReOrgHeader(header *types.Header, location string) {
 	if location == "prime" {
@@ -694,6 +711,7 @@ func (m *Manager) SubmitHashRate() {
 			case <-ticker.C:
 				hashRate := m.engine.Hashrate()
 				if hashRate != null {
+					fmt.Println(hashRate)
 					m.engine.SubmitHashrate(hexutil.Uint64(hashRate), id)
 				}
 			}
