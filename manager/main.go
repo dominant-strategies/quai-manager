@@ -383,19 +383,15 @@ func (m *Manager) subscribeNewHeadClient(client *ethclient.Client, location stri
 // subscribeReOrg subscribes to the reOrg events so that we can send the reorg
 // information to clients in lower contexts
 func (m *Manager) subscribeReOrg() {
-
-	prime := "prime"
-	regions := [3]string{"region-1", "region-2", "region-3"}
-
 	// subscribe to the prime and region clients
 	// prime is always true so simply directly subscribe
-	go m.subscribeReOrgClients(m.orderedBlockClients[0].chainClient, prime, 0)
-	go m.subscribeUncleClients(m.orderedBlockClients[0].chainClient, prime, 0)
+	go m.subscribeReOrgClients(m.orderedBlockClients[0].chainClient, m.location, 0)
+	go m.subscribeUncleClients(m.orderedBlockClients[0].chainClient, m.location, 0)
 
 	// subscribe to the regions from external contexts
 	for _, client := range m.orderedBlockClients[1:orderedRegionIndex] {
-		go m.subscribeReOrgClients(client.chainClient, regions[m.location[0]-1], 1)
-		go m.subscribeUncleClients(client.chainClient, regions[m.location[0]-1], 1)
+		go m.subscribeReOrgClients(client.chainClient, m.location, 1)
+		go m.subscribeUncleClients(client.chainClient, m.location, 1)
 	}
 }
 
@@ -436,7 +432,7 @@ func compareReorgDifficulty(commonHead *types.Header, oldChain, newChain []*type
 	return newChainDifficulty.Cmp(oldChainDifficulty) > 0 && nonceEmpty
 }
 
-func (m *Manager) subscribeReOrgClients(client *ethclient.Client, location string, difficultyContext int) {
+func (m *Manager) subscribeReOrgClients(client *ethclient.Client, location []byte, difficultyContext int) {
 	reOrgData := make(chan core.ReOrgRollup, 1)
 	sub, err := client.SubscribeReOrg(context.Background(), reOrgData)
 	if err != nil {
@@ -452,18 +448,18 @@ func (m *Manager) subscribeReOrgClients(client *ethclient.Client, location strin
 				if len(reOrgData.OldChainHeaders) == 0 {
 					continue // might indicate an error
 				} else if len(reOrgData.OldChainHeaders) == 1 {
-					m.sendReOrgHeader(reOrgData.OldChainHeaders[0], location)
+					m.sendReOrgHeader(reOrgData.OldChainHeaders[0], location, difficultyContext)
 				} else {
-					m.sendReOrgHeader(reOrgData.OldChainHeaders[len(reOrgData.OldChainHeaders)-2], location)
+					m.sendReOrgHeader(reOrgData.OldChainHeaders[len(reOrgData.OldChainHeaders)-2], location, difficultyContext)
 				}
 			}
 		}
 	}
 }
 
-func (m *Manager) subscribeUncleClients(client *ethclient.Client, location string, difficultyContext int) {
-	sideEvent := make(chan core.ChainSideEvent, 1)
-	sub, err := client.SubscribeChainSideEvent(context.Background(), sideEvent)
+func (m *Manager) subscribeUncleClients(client *ethclient.Client, location []byte, difficultyContext int) {
+	uncleEvent := make(chan *types.Header)
+	sub, err := client.SubscribeChainUncleEvent(context.Background(), uncleEvent)
 	if err != nil {
 		log.Fatal("Failed to subscribe to the side event notifications in", location, err)
 	}
@@ -471,43 +467,31 @@ func (m *Manager) subscribeUncleClients(client *ethclient.Client, location strin
 
 	for {
 		select {
-		case sideEvent := <-sideEvent:
-			fmt.Println("SideEvent", sideEvent.Block)
-			// m.sendReOrgHeader(sideEvent.Block.Header(), location)
+		case uncleEvent := <-uncleEvent:
+			fmt.Println("uncleEvent", uncleEvent.Hash(), location, difficultyContext)
+			m.sendReOrgHeader(uncleEvent, location, difficultyContext)
 		}
 	}
 }
 
 // sendReOrgHeader sends the reorg header to the respective region and zone clients
-func (m *Manager) sendReOrgHeader(header *types.Header, location string) {
-	if location == "prime" {
+func (m *Manager) sendReOrgHeader(header *types.Header, location []byte, difficultyContext int) {
+	if difficultyContext == 0 {
 		// if the reorg event takes palce in prime then have to send the header to all
 		// the chains except for prime
 		for _, blockClient := range m.orderedBlockClients[1:] { // start at 1 to skip Prime
 			blockClient.chainClient.SendReOrgData(context.Background(), header) // all clients pass thru regardless if mining
 		}
-	} else if location == "region" { // regions
+	} else if difficultyContext == 1 { // regions
 		// only subscribe to the zones
 		// send to the zone chain in the mining client and send to two other chains in the external clients
-		for _, blockClient := range m.orderedBlockClients[4:] {
+		// TODO: Fix this logic and restructure the orderedBlockClients
+		for _, blockClient := range m.orderedBlockClients {
+			fmt.Println("Sending reorg data")
 			blockClient.chainClient.SendReOrgData(context.Background(), header)
 		}
 	}
 
-}
-
-// getRegionIndex returns the location index of the reorgLocation
-func getRegionIndex(location string) int {
-	if location == "region-1" {
-		return 1
-	}
-	if location == "region-2" {
-		return 2
-	}
-	if location == "region-3" {
-		return 3
-	}
-	return -1
 }
 
 // fetchPendingBlocks gets the latest block when we have received a new pending header. This will get the receipts,
