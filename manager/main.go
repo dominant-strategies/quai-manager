@@ -159,6 +159,8 @@ func main() {
 			}
 		}
 
+		go m.checkBestLocation()
+
 		go m.resultLoop()
 
 		go m.miningLoop()
@@ -192,7 +194,6 @@ func getMiningClients(config util.Config) ([]orderedBlockClient, int) {
 			log.Println("Error connecting to Prime mining node")
 			log.Println(err)
 		} else {
-			primeBlockClient.chainMining = true
 			primeBlockClient.chainClient = primeClient
 			primeBlockClient.chainContext = 0
 			allClients = append(allClients, primeBlockClient)
@@ -211,11 +212,6 @@ func getMiningClients(config util.Config) ([]orderedBlockClient, int) {
 			if err != nil {
 				log.Println("Error connecting to Region mining node ", URL, " in location ", i)
 			} else {
-				if i == int(config.Location[0])-1 {
-					regionBlockClient.chainMining = true
-				} else {
-					regionBlockClient.chainMining = false
-				}
 				regionBlockClient.chainClient = regionClient
 				regionBlockClient.chainContext = 1
 				allClients = append(allClients, regionBlockClient)
@@ -233,13 +229,8 @@ func getMiningClients(config util.Config) ([]orderedBlockClient, int) {
 				zoneBlockClient.chainAvailable = zoneURL
 				zoneClient, err := ethclient.Dial(zoneURL)
 				if err != nil {
-					log.Println("Error connecting to Zone mining node")
+					log.Println("Error connecting to Zone mining node ", zoneURL, " in location ", i, " ", j)
 				} else {
-					if i == int(config.Location[0])-1 && j == int(config.Location[1])-1 {
-						zoneBlockClient.chainMining = true
-					} else {
-						zoneBlockClient.chainMining = false
-					}
 					zoneBlockClient.chainClient = zoneClient
 					zoneBlockClient.chainContext = 2
 					allClients = append(allClients, zoneBlockClient)
@@ -882,11 +873,45 @@ func findBestLocation(clients []orderedBlockClient) []byte {
 			fmt.Println("zone ", i+1, " difficulty ", difficulty)
 		}
 	}
+	// set the appropriate orderedBlockClients.chainMining values to true, rest to false
+	// first cycle through Region chains
+	for i, client := range clients[1:3] {
+		if (i + 1) == regionLocation {
+			client.chainMining = true
+		} else {
+			client.chainMining = false
+		}
+	}
+	// second cycle through Zone chains
+	for i, client := range clients[4:13] {
+		if (i + 4) == ((regionLocation * 3) + (zoneLocation)) {
+			client.chainMining = true
+		} else {
+			client.chainMining = false
+		}
+	}
+	// print location selected
 	fmt.Println("Region location selected: ", regionLocation)
 	fmt.Println("Zone location selected: ", zoneLocation)
 	regionBytes := make([]byte, 8)
 	zoneBytes := make([]byte, 8)
 	binary.LittleEndian.PutUint64(regionBytes, uint64(regionLocation))
 	binary.LittleEndian.PutUint64(zoneBytes, uint64(zoneLocation))
+	// return location to config
 	return []byte{regionBytes[0], zoneBytes[0]}
+}
+
+func (m *Manager) checkBestLocation() {
+	ticker := time.NewTicker(10 * time.Minute)
+	go func() {
+		for {
+			select {
+			case <-exit:
+				ticker.Stop()
+				return
+			case <-ticker.C:
+				m.location = findBestLocation(m.orderedBlockClients)
+			}
+		}
+	}()
 }
