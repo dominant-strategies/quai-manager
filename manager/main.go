@@ -509,7 +509,6 @@ func (m *Manager) sendReOrgHeader(header *types.Header, location string, difficu
 		}
 	} else if difficultyContext == 1 {
 		for _, blockClient := range m.orderedBlockClients.zoneClients[getRegionIndex(location)-1] {
-			fmt.Println("Sending reorg data")
 			blockClient.SendReOrgData(context.Background(), header)
 		}
 	}
