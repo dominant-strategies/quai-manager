@@ -176,7 +176,6 @@ func main() {
 		go m.loopGlobalBlock()
 
 		// fetching the pending blocks
-		// Question ?? DO we need check connection when we already have the available check
 		if m.orderedBlockClients.primeAvailable && checkConnection(m.orderedBlockClients.primeClient) {
 			go m.fetchPendingBlocks(m.orderedBlockClients.primeClient, 0)
 		}
@@ -741,7 +740,6 @@ func (m *Manager) resultLoop() error {
 			}
 
 			// Check to see that all nodes are running before sending blocks to them.
-			// Question ?? We should not continue if any of them are offline right ?
 			if !m.allChainsOnline() {
 				log.Println("At least one of the chains is not online at the moment")
 				continue
