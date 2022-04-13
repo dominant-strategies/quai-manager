@@ -171,7 +171,7 @@ func main() {
 	if config.Mine {
 		log.Println("Starting manager in location ", config.Location)
 
-		m.subscribeLauncher()
+		m.pendingSubscriptionBundler()
 
 		go m.resultLoop()
 
@@ -182,7 +182,7 @@ func main() {
 		go m.loopGlobalBlock()
 
 		// fetching the pending blocks
-		m.fetchLauncher()
+		m.pendingFetchBundler()
 
 		go m.checkBestLocation()
 	}
@@ -258,6 +258,7 @@ func getMiningClients(config util.Config) orderedBlockClients {
 // subscribePendingHeader subscribes to the head of the mining nodes in order to pass
 // the most up to date block to the miner within the manager.
 func (m *Manager) subscribePendingHeader(client *ethclient.Client, sliceIndex int) {
+	log.Println("Starting Pending Header subscription on ", sliceIndex)
 	// check the status of the sync
 	checkSync, err := client.SyncProgress(context.Background())
 
@@ -298,6 +299,7 @@ func (m *Manager) subscribePendingHeader(client *ethclient.Client, sliceIndex in
 				// New head arrived, send if for state update if there's none running
 				m.fetchPendingBlocks(client, sliceIndex)
 			case <-m.doneCh: // location updated and this routine needs to be stopped to start a new one
+				log.Println("closing Pending Header subscription for ", client, " slice index ", sliceIndex)
 				return
 			}
 		}
@@ -945,7 +947,7 @@ func findBestLocation(clients orderedBlockClients) []byte {
 }
 
 func (m *Manager) checkBestLocation() {
-	ticker := time.NewTicker(10 * time.Minute)
+	ticker := time.NewTicker(10 * time.Second)
 	go func() {
 		for {
 			select {
@@ -959,15 +961,15 @@ func (m *Manager) checkBestLocation() {
 					m.doneCh <- true // channel to make current processes stop
 					m.location = newLocation
 					m.doneCh <- false // set back to false to let new mining processes start
-					m.subscribeLauncher()
-					m.fetchLauncher()
+					m.pendingSubscriptionBundler()
+					m.pendingFetchBundler()
 				}
 			}
 		}
 	}()
 }
 
-func (m *Manager) subscribeLauncher() {
+func (m *Manager) pendingSubscriptionBundler() {
 	// subscribing to the pending blocks
 	if m.orderedBlockClients.primeAvailable && checkConnection(m.orderedBlockClients.primeClient) {
 		go m.subscribePendingHeader(m.orderedBlockClients.primeClient, 0)
@@ -980,7 +982,7 @@ func (m *Manager) subscribeLauncher() {
 	}
 }
 
-func (m *Manager) fetchLauncher() {
+func (m *Manager) pendingFetchBundler() {
 	if m.orderedBlockClients.primeAvailable && checkConnection(m.orderedBlockClients.primeClient) {
 		go m.fetchPendingBlocks(m.orderedBlockClients.primeClient, 0)
 	}
