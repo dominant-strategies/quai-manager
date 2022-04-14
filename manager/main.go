@@ -552,7 +552,7 @@ func (m *Manager) fetchPendingBlocks(client *ethclient.Client, sliceIndex int) {
 
 			if i >= retryAttempts {
 				log.Println("Pending block was never found for index:", sliceIndex, " even after ", retryAttempts, " retry attempts ", "error:", err)
-				return
+				break
 			}
 
 			time.Sleep(time.Second)
