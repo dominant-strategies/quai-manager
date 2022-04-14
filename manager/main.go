@@ -300,7 +300,7 @@ func (m *Manager) subscribePendingHeader(client *ethclient.Client, sliceIndex in
 				m.fetchPendingBlocks(client, sliceIndex)
 			case <-m.doneCh: // location updated and this routine needs to be stopped to start a new one
 				log.Println("closing Pending Header subscription for ", client, " slice index ", sliceIndex)
-				return
+				break
 			}
 		}
 	}
@@ -947,7 +947,7 @@ func findBestLocation(clients orderedBlockClients) []byte {
 }
 
 func (m *Manager) checkBestLocation() {
-	ticker := time.NewTicker(10 * time.Second)
+	ticker := time.NewTicker(10 * time.Minute)
 	go func() {
 		for {
 			select {
