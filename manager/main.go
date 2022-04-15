@@ -1,6 +1,7 @@
 package main
 
 import (
+	"bytes"
 	"context"
 	"encoding/binary"
 	"errors"
@@ -71,6 +72,7 @@ func main() {
 
 	// Get URLs for all chains and set mining bools; if true then mine
 	// getting clients comes first because manager can poll chains for auto-mine
+	// must come before m.location is set
 	allClients := getMiningClients(config)
 
 	// errror handling in case any connections failed
@@ -98,7 +100,7 @@ func main() {
 	// set mining location
 	// if using the run-mine command then must remember to set region and zone locations
 	// if using run then the manager will automatically follow the chain with lowest difficulty
-	if len(os.Args) > 2 { // if run-mine
+	if len(os.Args) > 3 { // if run-mine
 		location := os.Args[1:3]
 
 		if len(location) > 2 {
@@ -171,7 +173,7 @@ func main() {
 	if config.Mine {
 		log.Println("Starting manager in location ", config.Location)
 
-		m.pendingSubscriptionBundler()
+		m.subscriptionBundle()
 
 		go m.resultLoop()
 
@@ -182,7 +184,7 @@ func main() {
 		go m.loopGlobalBlock()
 
 		// fetching the pending blocks
-		m.pendingFetchBundler()
+		m.fetchBundle()
 
 		go m.checkBestLocation()
 	}
@@ -888,10 +890,11 @@ func checkConnection(client *ethclient.Client) bool {
 	}
 }
 
+// Examines the Quai Network to find the Region-Zone location with lowest difficulty.
 func findBestLocation(clients orderedBlockClients) []byte {
-	var lowestRegion uint64 = 0 // integer for holding lowest Region difficulty
-	var lowestZone uint64 = 0   // integer for holding lowest Zone difficulty
-	var regionLocation int      // remember to return location as []byte with Zone1-1 = [1,1]
+	lowestRegion := big.NewInt(-1) // integer for holding lowest Region difficulty
+	lowestZone := big.NewInt(-1)   // integer for holding lowest Zone difficulty
+	var regionLocation int         // remember to return location as []byte with Zone1-1 = [1,1]
 	var zoneLocation int
 
 	// first find the Region chain with lowest difficulty
@@ -901,15 +904,10 @@ func findBestLocation(clients orderedBlockClients) []byte {
 			log.Println("Error: connection lost during request")
 			log.Println(err)
 		} else {
-			difficulty := latestHeader.Difficulty[1].Uint64()
-			if lowestRegion == 0 { // set first Region difficulty for comparison if not already set
-				regionLocation = 1
+			difficulty := latestHeader.Difficulty[1]
+			if difficulty.Cmp(lowestRegion) > 0 { // compare difficulty of Region chains to find easiest
+				regionLocation = i + 1
 				lowestRegion = difficulty
-			} else {
-				if difficulty < lowestRegion {
-					regionLocation = i + 1
-					lowestRegion = difficulty
-				}
 			}
 			fmt.Println("region ", i+1, " difficulty ", difficulty)
 		}
@@ -921,15 +919,10 @@ func findBestLocation(clients orderedBlockClients) []byte {
 			log.Println("Error: connect lost during request")
 			log.Println(err)
 		} else {
-			difficulty := latestHeader.Difficulty[2].Uint64()
-			if lowestZone == 0 {
-				zoneLocation = 1
+			difficulty := latestHeader.Difficulty[2]
+			if difficulty.Cmp(lowestZone) > 0 {
+				zoneLocation = i + 1
 				lowestZone = difficulty
-			} else {
-				if difficulty < lowestZone {
-					zoneLocation = i + 1
-					lowestZone = difficulty
-				}
 			}
 			fmt.Println("zone ", i+1, " difficulty ", difficulty)
 		}
@@ -946,6 +939,8 @@ func findBestLocation(clients orderedBlockClients) []byte {
 	return []byte{regionBytes[0], zoneBytes[0]}
 }
 
+// Checks for best location to mine every 10 minutes;
+// if better location is found it will initiate the change to the config.
 func (m *Manager) checkBestLocation() {
 	ticker := time.NewTicker(10 * time.Minute)
 	go func() {
@@ -957,19 +952,20 @@ func (m *Manager) checkBestLocation() {
 			case <-ticker.C:
 				newLocation := findBestLocation(m.orderedBlockClients)
 				// check if location has changed, and if true, update mining processes
-				if !(newLocation[0] == m.location[0] && newLocation[1] == m.location[1]) {
+				if bytes.Equal(newLocation, m.location) {
 					m.doneCh <- true // channel to make current processes stop
 					m.location = newLocation
 					m.doneCh <- false // set back to false to let new mining processes start
-					m.pendingSubscriptionBundler()
-					m.pendingFetchBundler()
+					m.subscriptionBundle()
+					m.fetchBundle()
 				}
 			}
 		}
 	}()
 }
 
-func (m *Manager) pendingSubscriptionBundler() {
+// Bundle of goroutines that need to be stopped and restarted if/when location updates.
+func (m *Manager) subscriptionBundle() {
 	// subscribing to the pending blocks
 	if m.orderedBlockClients.primeAvailable && checkConnection(m.orderedBlockClients.primeClient) {
 		go m.subscribePendingHeader(m.orderedBlockClients.primeClient, 0)
@@ -982,7 +978,8 @@ func (m *Manager) pendingSubscriptionBundler() {
 	}
 }
 
-func (m *Manager) pendingFetchBundler() {
+// Bundle of goroutines that need to be stopped and restarted if/when location updates.
+func (m *Manager) fetchBundle() {
 	if m.orderedBlockClients.primeAvailable && checkConnection(m.orderedBlockClients.primeClient) {
 		go m.fetchPendingBlocks(m.orderedBlockClients.primeClient, 0)
 	}
