@@ -333,6 +333,7 @@ func (m *Manager) subscribeNewHeadClient(client *ethclient.Client, location stri
 	for {
 		select {
 		case newHead := <-newHeadChannel:
+			log.Println("header received from ethclient SubscribeNewHead ", newHead)
 			// get the block and receipt block
 			block, err := client.BlockByHash(context.Background(), newHead.Hash())
 			if err != nil {
@@ -607,7 +608,9 @@ func (m *Manager) loopGlobalBlock() error {
 		select {
 		case block := <-m.pendingPrimeBlockCh:
 			header := block.Header()
+			log.Println("combinedHeader before updateCombinedHeader ", m.combinedHeader)
 			m.updateCombinedHeader(header, 0)
+			log.Println("combinedHeader after updateCombinedHeader ", m.combinedHeader)
 			m.pendingBlocks[0] = block
 			header.Nonce, header.MixDigest = types.BlockNonce{}, common.Hash{}
 			select {
@@ -617,7 +620,9 @@ func (m *Manager) loopGlobalBlock() error {
 			}
 		case block := <-m.pendingRegionBlockCh:
 			header := block.Header()
+			log.Println("combinedHeader before updateCombinedHeader ", m.combinedHeader)
 			m.updateCombinedHeader(header, 1)
+			log.Println("combinedHeader after updateCombinedHeader ", m.combinedHeader)
 			m.pendingBlocks[1] = block
 			header.Nonce, header.MixDigest = types.BlockNonce{}, common.Hash{}
 			select {
@@ -627,7 +632,9 @@ func (m *Manager) loopGlobalBlock() error {
 			}
 		case block := <-m.pendingZoneBlockCh:
 			header := block.Header()
+			log.Println("combinedHeader before updateCombinedHeader ", m.combinedHeader)
 			m.updateCombinedHeader(header, 2)
+			log.Println("combinedHeader after updateCombinedHeader ", m.combinedHeader)
 			m.pendingBlocks[2] = block
 			header.Nonce, header.MixDigest = types.BlockNonce{}, common.Hash{}
 			select {
@@ -672,6 +679,7 @@ func (m *Manager) miningLoop() error {
 	for {
 		select {
 		case header := <-m.updatedCh:
+			log.Println("header from updatedCh ", header)
 			// Mine the header here
 			// Return the valid header with proper nonce and mix digest
 			// Interrupt previous sealing operation
@@ -726,6 +734,7 @@ func (m *Manager) resultLoop() error {
 		case bundle := <-m.resultCh:
 			m.lock.Lock()
 			header := bundle.Header
+			log.Println("header after resultCh ", header)
 
 			if bundle.Context == 0 {
 				log.Println("PRIME: ", header.Number, header.Hash())
@@ -861,6 +870,7 @@ func (m *Manager) SendClientsExtBlock(mined int, externalContexts []int, block *
 // SendMinedBlock sends the mined block to its mining client with the transactions, uncles, and receipts.
 func (m *Manager) SendMinedBlock(mined int, header *types.Header, wg *sync.WaitGroup) {
 	receiptBlock := m.pendingBlocks[mined]
+	log.Println("receiptBlock in SendMinedBlock ", receiptBlock)
 	block := types.NewBlockWithHeader(receiptBlock.Header()).WithBody(receiptBlock.Transactions(), receiptBlock.Uncles())
 	if block != nil {
 		sealed := block.WithSeal(header)
@@ -891,9 +901,9 @@ func checkConnection(client *ethclient.Client) bool {
 
 // Examines the Quai Network to find the Region-Zone location with lowest difficulty.
 func findBestLocation(clients orderedBlockClients) []byte {
-	lowestRegion := big.NewInt(-1) // integer for holding lowest Region difficulty
-	lowestZone := big.NewInt(-1)   // integer for holding lowest Zone difficulty
-	var regionLocation int         // remember to return location as []byte with Zone1-1 = [1,1]
+	var lowestRegion uint64 = 0 // integer for holding lowest Region difficulty
+	var lowestZone uint64 = 0   // integer for holding lowest Zone difficulty
+	var regionLocation int      // remember to return location as []byte with Zone1-1 = [1,1]
 	var zoneLocation int
 
 	// first find the Region chain with lowest difficulty
@@ -904,10 +914,16 @@ func findBestLocation(clients orderedBlockClients) []byte {
 			log.Println(err)
 		} else {
 			difficulty := latestHeader.Difficulty[1]
-			if difficulty.Cmp(lowestRegion) > 0 { // compare difficulty of Region chains to find easiest
-				regionLocation = i + 1
-				lowestRegion = difficulty
+			if lowestRegion == 0 {
+				regionLocation = 1
+				lowestRegion = difficulty.Uint64()
+			} else {
+				if difficulty.Uint64() < lowestRegion { // compare difficulty of Region chains to find easiest
+					regionLocation = i + 1
+					lowestRegion = difficulty.Uint64()
+				}
 			}
+
 			fmt.Println("region ", i+1, " difficulty ", difficulty)
 		}
 	}
@@ -919,10 +935,16 @@ func findBestLocation(clients orderedBlockClients) []byte {
 			log.Println(err)
 		} else {
 			difficulty := latestHeader.Difficulty[2]
-			if difficulty.Cmp(lowestZone) > 0 {
-				zoneLocation = i + 1
-				lowestZone = difficulty
+			if lowestZone == 0 {
+				zoneLocation = 1
+				lowestZone = difficulty.Uint64()
+			} else {
+				if difficulty.Uint64() < lowestZone {
+					zoneLocation = i + 1
+					lowestZone = difficulty.Uint64()
+				}
 			}
+
 			fmt.Println("zone ", i+1, " difficulty ", difficulty)
 		}
 	}
