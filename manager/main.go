@@ -952,7 +952,7 @@ func (m *Manager) checkBestLocation() {
 			case <-ticker.C:
 				newLocation := findBestLocation(m.orderedBlockClients)
 				// check if location has changed, and if true, update mining processes
-				if bytes.Equal(newLocation, m.location) {
+				if !bytes.Equal(newLocation, m.location) {
 					m.doneCh <- true // channel to make current processes stop
 					m.location = newLocation
 					m.doneCh <- false // set back to false to let new mining processes start
