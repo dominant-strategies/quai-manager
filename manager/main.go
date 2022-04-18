@@ -70,10 +70,9 @@ func main() {
 		log.Fatal("cannot load config:", err)
 	}
 
-	// Get URLs for all chains and set mining bools; if true then mine
+	// Get URLs for all chains and set mining bools to represent if online
 	// getting clients comes first because manager can poll chains for auto-mine
-	// must come before m.location is set
-	allClients := getMiningClients(config)
+	allClients := getNodeClients(config)
 
 	// errror handling in case any connections failed
 	var connectStatus = true
@@ -173,7 +172,7 @@ func main() {
 	if config.Mine {
 		log.Println("Starting manager in location ", config.Location)
 
-		m.subscriptionBundle()
+		m.subscribeAllPendingBlocks()
 
 		go m.resultLoop()
 
@@ -184,16 +183,16 @@ func main() {
 		go m.loopGlobalBlock()
 
 		// fetching the pending blocks
-		m.fetchBundle()
+		m.fetchAllPendingBlocks()
 
 		go m.checkBestLocation()
 	}
 	<-exit
 }
 
-// getMiningClients takes in a config and retrieves the Prime, Region, and Zone client
+// getNodeClients takes in a config and retrieves the Prime, Region, and Zone client
 // that is used for mining in a slice.
-func getMiningClients(config util.Config) orderedBlockClients {
+func getNodeClients(config util.Config) orderedBlockClients {
 
 	// initializing all the clients
 	allClients := orderedBlockClients{
@@ -956,8 +955,8 @@ func (m *Manager) checkBestLocation() {
 					m.doneCh <- true // channel to make current processes stop
 					m.location = newLocation
 					m.doneCh <- false // set back to false to let new mining processes start
-					m.subscriptionBundle()
-					m.fetchBundle()
+					m.subscribeAllPendingBlocks()
+					m.fetchAllPendingBlocks()
 				}
 			}
 		}
@@ -965,7 +964,7 @@ func (m *Manager) checkBestLocation() {
 }
 
 // Bundle of goroutines that need to be stopped and restarted if/when location updates.
-func (m *Manager) subscriptionBundle() {
+func (m *Manager) subscribeAllPendingBlocks() {
 	// subscribing to the pending blocks
 	if m.orderedBlockClients.primeAvailable && checkConnection(m.orderedBlockClients.primeClient) {
 		go m.subscribePendingHeader(m.orderedBlockClients.primeClient, 0)
@@ -979,7 +978,7 @@ func (m *Manager) subscriptionBundle() {
 }
 
 // Bundle of goroutines that need to be stopped and restarted if/when location updates.
-func (m *Manager) fetchBundle() {
+func (m *Manager) fetchAllPendingBlocks() {
 	if m.orderedBlockClients.primeAvailable && checkConnection(m.orderedBlockClients.primeClient) {
 		go m.fetchPendingBlocks(m.orderedBlockClients.primeClient, 0)
 	}
