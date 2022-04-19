@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"log"
+	"math"
 	"math/big"
 	"math/rand"
 	"os"
@@ -901,9 +902,9 @@ func checkConnection(client *ethclient.Client) bool {
 
 // Examines the Quai Network to find the Region-Zone location with lowest difficulty.
 func findBestLocation(clients orderedBlockClients) []byte {
-	var lowestRegion uint64 = 0 // integer for holding lowest Region difficulty
-	var lowestZone uint64 = 0   // integer for holding lowest Zone difficulty
-	var regionLocation int      // remember to return location as []byte with Zone1-1 = [1,1]
+	lowestRegion := big.NewInt(math.MaxInt) // integer for holding lowest Region difficulty
+	lowestZone := big.NewInt(math.MaxInt)   // integer for holding lowest Zone difficulty
+	var regionLocation int                  // remember to return location as []byte with Zone1-1 = [1,1]
 	var zoneLocation int
 
 	// first find the Region chain with lowest difficulty
@@ -914,16 +915,10 @@ func findBestLocation(clients orderedBlockClients) []byte {
 			log.Println(err)
 		} else {
 			difficulty := latestHeader.Difficulty[1]
-			if lowestRegion == 0 {
-				regionLocation = 1
-				lowestRegion = difficulty.Uint64()
-			} else {
-				if difficulty.Uint64() < lowestRegion { // compare difficulty of Region chains to find easiest
-					regionLocation = i + 1
-					lowestRegion = difficulty.Uint64()
-				}
+			if difficulty.Cmp(lowestRegion) == -1 {
+				regionLocation = i + 1
+				lowestRegion = difficulty
 			}
-
 			fmt.Println("region ", i+1, " difficulty ", difficulty)
 		}
 	}
@@ -935,16 +930,10 @@ func findBestLocation(clients orderedBlockClients) []byte {
 			log.Println(err)
 		} else {
 			difficulty := latestHeader.Difficulty[2]
-			if lowestZone == 0 {
-				zoneLocation = 1
-				lowestZone = difficulty.Uint64()
-			} else {
-				if difficulty.Uint64() < lowestZone {
-					zoneLocation = i + 1
-					lowestZone = difficulty.Uint64()
-				}
+			if difficulty.Cmp(lowestZone) == -1 {
+				zoneLocation = i + 1
+				lowestZone = difficulty
 			}
-
 			fmt.Println("zone ", i+1, " difficulty ", difficulty)
 		}
 	}
