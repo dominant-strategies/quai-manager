@@ -97,11 +97,15 @@ func main() {
 		log.Println("For best performance check your connections and restart the manager")
 	}
 
+	// variable to check whether mining location is set manually or automatically
+	var checkBestStatus bool
+
 	// set mining location
 	// if using the run-mine command then must remember to set region and zone locations
 	// if using run then the manager will automatically follow the chain with lowest difficulty
 	if len(os.Args) > 3 { // if run-mine
 		location := os.Args[1:3]
+		checkBestStatus = false
 
 		if len(location) > 2 {
 			log.Fatal("Only specify 2 values for the location")
@@ -120,6 +124,7 @@ func main() {
 		config.Location = []byte{RegionLocArr[0], ZoneLocArr[0]}
 		config.Mine = true
 	} else { // if run
+		checkBestStatus = true
 		config.Location = findBestLocation(allClients)
 		config.Mine = true
 	}
@@ -186,7 +191,9 @@ func main() {
 		// fetching the pending blocks
 		m.fetchAllPendingBlocks()
 
-		go m.checkBestLocation()
+		if checkBestStatus {
+			go m.checkBestLocation()
+		}
 	}
 	<-exit
 }
