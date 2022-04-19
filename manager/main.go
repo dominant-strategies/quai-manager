@@ -76,7 +76,7 @@ func main() {
 	allClients := getNodeClients(config)
 
 	// errror handling in case any connections failed
-	var connectStatus = true
+	connectStatus := true
 	if !allClients.primeAvailable {
 		connectStatus = false
 	}
@@ -260,7 +260,8 @@ func getNodeClients(config util.Config) orderedBlockClients {
 // subscribePendingHeader subscribes to the head of the mining nodes in order to pass
 // the most up to date block to the miner within the manager.
 func (m *Manager) subscribePendingHeader(client *ethclient.Client, sliceIndex int) {
-	log.Println("Starting Pending Header subscription on ", sliceIndex)
+	log.Println("Subscribe to pending header at context ", sliceIndex)
+	log.Println("Current location is ", m.location)
 	// check the status of the sync
 	checkSync, err := client.SyncProgress(context.Background())
 
@@ -517,7 +518,7 @@ func (m *Manager) sendReOrgHeader(header *types.Header, location string, difficu
 	}
 }
 
-// fetchPendingBlocks gets the latest block when we have received a new pending header. This will get the receipts,
+// PendingBlocks gets the latest block when we have received a new pending header. This will get the receipts,
 // transactions, and uncles to be stored during mining.
 func (m *Manager) fetchPendingBlocks(client *ethclient.Client, sliceIndex int) {
 	retryAttempts := 5
