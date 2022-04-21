@@ -342,7 +342,7 @@ func (m *Manager) subscribeNewHeadClient(client *ethclient.Client, location stri
 	for {
 		select {
 		case newHead := <-newHeadChannel:
-			log.Println("header received from ethclient SubscribeNewHead ", newHead)
+			log.Println("header received from ethclient SubscribeNewHead ", newHead.Hash())
 			// get the block and receipt block
 			block, err := client.BlockByHash(context.Background(), newHead.Hash())
 			if err != nil {
@@ -617,9 +617,7 @@ func (m *Manager) loopGlobalBlock() error {
 		select {
 		case block := <-m.pendingPrimeBlockCh:
 			header := block.Header()
-			log.Println("combinedHeader before updateCombinedHeader ", m.combinedHeader)
 			m.updateCombinedHeader(header, 0)
-			log.Println("combinedHeader after updateCombinedHeader ", m.combinedHeader)
 			m.pendingBlocks[0] = block
 			header.Nonce, header.MixDigest = types.BlockNonce{}, common.Hash{}
 			select {
@@ -629,9 +627,7 @@ func (m *Manager) loopGlobalBlock() error {
 			}
 		case block := <-m.pendingRegionBlockCh:
 			header := block.Header()
-			log.Println("combinedHeader before updateCombinedHeader ", m.combinedHeader)
 			m.updateCombinedHeader(header, 1)
-			log.Println("combinedHeader after updateCombinedHeader ", m.combinedHeader)
 			m.pendingBlocks[1] = block
 			header.Nonce, header.MixDigest = types.BlockNonce{}, common.Hash{}
 			select {
@@ -641,9 +637,7 @@ func (m *Manager) loopGlobalBlock() error {
 			}
 		case block := <-m.pendingZoneBlockCh:
 			header := block.Header()
-			log.Println("combinedHeader before updateCombinedHeader ", m.combinedHeader)
 			m.updateCombinedHeader(header, 2)
-			log.Println("combinedHeader after updateCombinedHeader ", m.combinedHeader)
 			m.pendingBlocks[2] = block
 			header.Nonce, header.MixDigest = types.BlockNonce{}, common.Hash{}
 			select {
@@ -688,7 +682,7 @@ func (m *Manager) miningLoop() error {
 	for {
 		select {
 		case header := <-m.updatedCh:
-			log.Println("header from updatedCh ", header)
+			log.Println("header from updatedCh ", header.Hash())
 			// Mine the header here
 			// Return the valid header with proper nonce and mix digest
 			// Interrupt previous sealing operation
@@ -743,7 +737,7 @@ func (m *Manager) resultLoop() error {
 		case bundle := <-m.resultCh:
 			m.lock.Lock()
 			header := bundle.Header
-			log.Println("header after resultCh ", header)
+			log.Println("header after resultCh ", header.Hash())
 
 			if bundle.Context == 0 {
 				log.Println("PRIME: ", header.Number, header.Hash())
@@ -756,6 +750,9 @@ func (m *Manager) resultLoop() error {
 			if bundle.Context == 2 {
 				log.Println("ZONE:  ", header.Number, header.Hash())
 			}
+
+			// print m.pendingBlocks
+			log.Println("pendingBlocks is now: ", m.pendingBlocks)
 
 			// Check to see that all nodes are running before sending blocks to them.
 			if !m.allChainsOnline() {
