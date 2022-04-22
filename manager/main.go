@@ -772,11 +772,11 @@ func (m *Manager) resultLoop() error {
 				go m.SendClientsMinedExtBlock(2, []int{0, 1}, header, &wg)
 				wg.Wait()
 				wg.Add(1)
-				go m.SendMinedBlock(2, header, &wg)
+				go m.SendMinedBlock(0, header, &wg)
 				wg.Add(1)
 				go m.SendMinedBlock(1, header, &wg)
 				wg.Add(1)
-				go m.SendMinedBlock(0, header, &wg)
+				go m.SendMinedBlock(2, header, &wg)
 				wg.Wait()
 			}
 
@@ -789,9 +789,9 @@ func (m *Manager) resultLoop() error {
 				go m.SendClientsMinedExtBlock(2, []int{0, 1}, header, &wg)
 				wg.Wait()
 				wg.Add(1)
-				go m.SendMinedBlock(2, header, &wg)
-				wg.Add(1)
 				go m.SendMinedBlock(1, header, &wg)
+				wg.Add(1)
+				go m.SendMinedBlock(2, header, &wg)
 				wg.Wait()
 			}
 
