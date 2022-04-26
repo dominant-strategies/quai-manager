@@ -16,7 +16,7 @@ import (
 	lru "github.com/hashicorp/golang-lru"
 	"github.com/spruce-solutions/go-quai/common"
 	"github.com/spruce-solutions/go-quai/common/hexutil"
-	"github.com/spruce-solutions/go-quai/consensus/ethash"
+	"github.com/spruce-solutions/go-quai/consensus/randomx"
 	"github.com/spruce-solutions/go-quai/core"
 	"github.com/spruce-solutions/go-quai/core/types"
 	"github.com/spruce-solutions/go-quai/crypto"
@@ -32,7 +32,7 @@ const (
 var exit = make(chan bool)
 
 type Manager struct {
-	engine *ethash.Ethash
+	engine *randomx.Randomx
 
 	orderedBlockClients orderedBlockClients // will hold all chain URLs and settings in order from prime to zone-3-3
 	combinedHeader      *types.Header
@@ -126,16 +126,19 @@ func main() {
 		Bloom:             make([]types.Bloom, 3),
 	}
 
-	sharedConfig := ethash.Config{
-		PowMode:       ethash.ModeNormal,
-		CachesInMem:   3,
-		DatasetsInMem: 1,
+	rxConfig := randomx.Config{
+		MiningThreads: 0,
+		NotifyFull:    true,
+		FullMem:       true,
+		HardAES:       true,
 	}
-
-	ethashEngine := ethash.New(sharedConfig, nil, false)
-	ethashEngine.SetThreads(4)
+	log.Println("Building RandomX dataset")
+	rxEngine, err := randomx.New(rxConfig, []byte(randomx.RxTestKey), nil, false)
+	if nil != err {
+		log.Fatal("Failed to create RandomX engine: ", err)
+	}
 	m := &Manager{
-		engine:               ethashEngine,
+		engine:               rxEngine,
 		orderedBlockClients:  allClients,
 		combinedHeader:       header,
 		pendingBlocks:        make([]*types.ReceiptBlock, 3),
@@ -684,8 +687,8 @@ func (m *Manager) miningLoop() error {
 
 			headerNull := m.headerNullCheck()
 			if headerNull == nil {
-				log.Println("Starting to mine block", header.Number, "location", m.location)
-				if err := m.engine.MergedMineSeal(header, m.resultCh, stopCh); err != nil {
+				log.Println("Starting to mine block", header.Number, "@ location", m.location, "w/ difficulty", header.Difficulty[2])
+				if err := m.engine.SealHeader(header, m.resultCh, stopCh); err != nil {
 					log.Println("Block sealing failed", "err", err)
 				}
 			}
