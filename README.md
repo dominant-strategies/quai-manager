@@ -25,11 +25,21 @@ go build -o ./build/bin/manager manager/main.go
 
 ### Set the region and zone flags
 
+With the introduction of the auto-miner enhancement, it is now possible to let the manager automatically find and set itself to the best location. In this mode, the manager will start at the best location and also check every 10 minutes whether it is still in the best location and, if not, it will update to the best location. The best location is the chain with the lowest observed difficulty, meaning the auto-miner automatically selects the chain likely to bring the best rewards to a miner while also automatically distributing hashrate across the network evenly.
+
+The below command runs the manager in auto-miner mode:
+
+Run via Makefile
+
+```
+make run
+```
+
+If preferred, it is still possible to manually set the mining location. It is as simple as providing the arguments to tell the manager what location to select. In manual mode, the miner will not update its mining location but will only mine in the selected location.
+
 The below commands will run the manager in region 1 and zone 2.
 
 It can be set to any value between 1 and 3 for regions and zones and the manager will start in that location.
-
-Run via Makefile
 
 ```shell
 make run region=1 zone=2
