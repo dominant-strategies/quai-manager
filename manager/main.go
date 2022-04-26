@@ -124,9 +124,14 @@ func main() {
 		config.Location = []byte{RegionLocArr[0], ZoneLocArr[0]}
 		config.Mine = true
 	} else { // if run
-		changeLocationCycle = true
 		config.Location = findBestLocation(allClients)
 		config.Mine = true
+		if os.Args[1] == "true" {
+			changeLocationCycle = true
+		} else {
+			changeLocationCycle = false
+		}
+
 	}
 
 	header := &types.Header{
