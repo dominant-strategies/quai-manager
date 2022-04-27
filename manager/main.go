@@ -126,7 +126,7 @@ func main() {
 	} else { // if run
 		config.Location = findBestLocation(allClients)
 		config.Mine = true
-		if os.Args[1] == "true" {
+		if config.Optimize == true {
 			changeLocationCycle = true
 		} else {
 			changeLocationCycle = false

@@ -11,10 +11,8 @@ quai-manager:
 	@echo "Done building."
 	@echo "Run \"$(GOBIN)/manager\" to launch quai-manager"
 
-# to run with optimizer set optimize=true (checks best location every 10 minutes)
-# else just make run
 run:
-	./build/bin/manager $(optimize) 0
+	./build/bin/manager 0
 
 run-mine:
 	./build/bin/manager $(region) $(zone) 1
