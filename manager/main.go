@@ -842,14 +842,16 @@ func (m *Manager) SendClientsExtBlock(mined int, externalContexts []int, block *
 	}
 	// sending the external blocks to chains other than the mining chains
 	for i, blockClient := range m.orderedBlockClients.regionClients {
-		if int(m.location[0])-1 != i {
+		miningRegion := int(m.location[0])-1 == i
+		if !miningRegion {
 			blockClient.SendExternalBlock(context.Background(), block, receiptBlock.Receipts(), big.NewInt(int64(mined)))
 		}
 	}
 
 	for i := range m.orderedBlockClients.zoneClients {
 		for j, blockClient := range m.orderedBlockClients.zoneClients[i] {
-			if int(m.location[0])-1 != i && int(m.location[1])-1 != j {
+			miningZone := int(m.location[0])-1 == i && int(m.location[1])-1 == j
+			if !miningZone {
 				blockClient.SendExternalBlock(context.Background(), block, receiptBlock.Receipts(), big.NewInt(int64(mined)))
 			}
 		}
