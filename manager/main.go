@@ -10,8 +10,6 @@ import (
 	"math"
 	"math/big"
 	"math/rand"
-	"os"
-	"strconv"
 	"sync"
 	"time"
 
@@ -103,35 +101,18 @@ func main() {
 	// set mining location
 	// if using the run-mine command then must remember to set region and zone locations
 	// if using run then the manager will automatically follow the chain with lowest difficulty
-	if len(os.Args) > 3 { // if run-mine
-		location := os.Args[1:3]
-		changeLocationCycle = false
-
-		if len(location) > 2 {
-			log.Fatal("Only specify 2 values for the location")
-		}
-
-		// converting region and zone location values from string to integer
-		regionLoc, _ := strconv.Atoi(location[0])
-		zoneLoc, _ := strconv.Atoi(location[1])
-
-		// converting the region and zone integer values to bytes
-		RegionLocArr := make([]byte, 8)
-		ZoneLocArr := make([]byte, 8)
-		binary.LittleEndian.PutUint64(RegionLocArr, uint64(regionLoc))
-		binary.LittleEndian.PutUint64(ZoneLocArr, uint64(zoneLoc))
-
-		config.Location = []byte{RegionLocArr[0], ZoneLocArr[0]}
-		config.Mine = true
-	} else { // if run
+	if config.Auto == true { // auto-miner
 		config.Location = findBestLocation(allClients)
 		config.Mine = true
-		if config.Optimize == true {
-			changeLocationCycle = true
-		} else {
-			changeLocationCycle = false
-		}
+		changeLocationCycle = config.Optimize
+	} else { // if run
+		changeLocationCycle = false
+		location := config.Location
 
+		if len(location) != 2 {
+			log.Fatal("Only specify 2 values for the location")
+			fmt.Println("Make sure to set config.yaml file properly")
+		}
 	}
 
 	header := &types.Header{
@@ -197,7 +178,7 @@ func main() {
 		m.fetchAllPendingBlocks()
 
 		if changeLocationCycle {
-			go m.checkBestLocation()
+			go m.checkBestLocation(config.OptimizeTimer)
 		}
 	}
 	<-exit
@@ -961,8 +942,8 @@ func findBestLocation(clients orderedBlockClients) []byte {
 
 // Checks for best location to mine every 10 minutes;
 // if better location is found it will initiate the change to the config.
-func (m *Manager) checkBestLocation() {
-	ticker := time.NewTicker(10 * time.Minute)
+func (m *Manager) checkBestLocation(timer int) {
+	ticker := time.NewTicker(time.Duration(timer) * time.Minute)
 	go func() {
 		for {
 			select {
