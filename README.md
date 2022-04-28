@@ -23,7 +23,7 @@ go build -o ./build/bin/manager manager/main.go
 
 ## Run the manager
 
-### Set the region and zone flags
+### Setting the region and zone flags for mining location
 
 With the introduction of the auto-miner enhancement, it is now possible to let the manager automatically find and set itself to the best location. In this mode, the manager will start at the best location. There is an also an option to "optimize," and if set true it will also check every 10 minutes whether it is still in the best location and, if not, it will update to the best location. The best location is the chain with the lowest observed difficulty, meaning the auto-miner automatically selects the chain likely to bring the best rewards to a miner while also automatically distributing hashrate across the network evenly.
 
@@ -35,7 +35,7 @@ Run via Makefile
 make run
 ```
 
-The option to "optimize" is set true by default in the config.yaml file. If you go into your config.yaml file, you can change the value of "Optimize: true" to "Optimize: false." If this is set false, the auto-miner will select the best location on start-up but it will not change its location afterwards.
+The option to "optimize" is set false by default in the config.yaml file. If you go into your config.yaml file, you can change the value of "Optimize: false" to "Optimize: true." If this is set false, the auto-miner will select the best location on start-up but it will not change its location afterwards. If true, it will update its location.
 
 If preferred, it is possible to manually set the mining location. It is as simple as providing the arguments to tell the manager what location to select. In manual mode, the miner will not update its mining location but will only mine in the selected location.
 
@@ -44,7 +44,13 @@ It can be set to any value between 1 and 3 for regions and zones and the manager
 The below commands will run the manager in region 1 and zone 2.
 
 ```shell
-make run-mine region=1 zone=2
+make run region=1 zone=2
+```
+
+The below commands will run the manager in region 2 and zone 3.
+
+```
+make run region=2 zone=3
 ```
 
 The manager can also be run in the background with logs saved to a file. It can be run similarly to make run, with the same auto-miner and optimizer enhancements possible.
@@ -64,7 +70,7 @@ make run-background region=1 zone=2
 Please note! If you supply the wrong arguments the miner might still run! For example, if you enter:
 
 ```
-make run-mine regio=1 zone=2
+make run regio=1 zone=2
 ```
 
 The result will be the auto-miner starting and setting the best location, ignoring the arguments because of the typo. Be sure to check your miner is running properly otherwise it might behave differently than intended!
