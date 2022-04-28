@@ -12,10 +12,7 @@ quai-manager:
 	@echo "Run \"$(GOBIN)/manager\" to launch quai-manager"
 
 run:
-	./build/bin/manager 0
-
-run-mine:
-	./build/bin/manager $(region) $(zone) 1
+	./build/bin/manager $(region) $(zone) 0
 
 run-background:
 ifeq (,$(wildcard logs))
