@@ -23,10 +23,3 @@ endif
 stop:
 	@if pgrep -f ./build/bin/manager; then pkill -f ./build/bin/manager; fi
 	@echo "Stopping all instances of quai-manager"
-
-run-mine-background:
-
-ifeq (,$(wildcard logs))
-	mkdir logs
-endif
-	@nohup ./build/bin/manager $(region) $(zone) 1 >> logs/manager.log 2>&1 &
