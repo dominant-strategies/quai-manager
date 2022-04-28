@@ -35,20 +35,16 @@ Run via Makefile
 make run
 ```
 
-If you use the command with the argument added like below it will have running optimization:
-
-```
-make run optimize=true
-```
+The option to "optimize" is set true by default in the config.yaml file. If you go into your config.yaml file, you can change the value of "Optimize: true" to "Optimize: false." If this is set false, the auto-miner will select the best location on start-up but it will not change its location afterwards.
 
 If preferred, it is possible to manually set the mining location. It is as simple as providing the arguments to tell the manager what location to select. In manual mode, the miner will not update its mining location but will only mine in the selected location.
 
-The below commands will run the manager in region 1 and zone 2.
-
 It can be set to any value between 1 and 3 for regions and zones and the manager will start in that location.
 
+The below commands will run the manager in region 1 and zone 2.
+
 ```shell
-make run region=1 zone=2
+make run-mine region=1 zone=2
 ```
 
 The manager can also be run in the background with logs saved to a file. It can be run similarly to make run, with the same auto-miner and optimizer enhancements possible.
@@ -57,12 +53,6 @@ To run in the background with the auto-miner:
 
 ```
 make run-background
-```
-
-To run in the background with the auto-miner and optimizer set true:
-
-```
-make run-background optimize=true
 ```
 
 To run in the background with a location set manually:
@@ -74,7 +64,7 @@ make run-background region=1 zone=2
 Please note! If you supply the wrong arguments the miner might still run! For example, if you enter:
 
 ```
-make run regio=1 zone=2
+make run-mine regio=1 zone=2
 ```
 
 The result will be the auto-miner starting and setting the best location, ignoring the arguments because of the typo. Be sure to check your miner is running properly otherwise it might behave differently than intended!
