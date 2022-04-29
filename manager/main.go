@@ -131,11 +131,13 @@ func main() {
 
 		config.Location = []byte{RegionLocArr[0], ZoneLocArr[0]}
 		config.Mine = mine == 1
+		fmt.Println("Manual mode started")
 	} else {
 		if config.Auto == true { // auto-miner
 			config.Location = findBestLocation(allClients)
 			config.Mine = true
 			changeLocationCycle = config.Optimize
+			fmt.Println("Aut-miner mode started with Optimizer= ", config.Optimize, "and timer set to ", config.OptimizeTimer, "minutes")
 		} else { // if run
 			changeLocationCycle = false
 			location := config.Location
@@ -144,6 +146,7 @@ func main() {
 				log.Fatal("Only specify 2 values for the location")
 				fmt.Println("Make sure to set config.yaml file properly")
 			}
+			fmt.Println("Manual mode started")
 		}
 	}
 
