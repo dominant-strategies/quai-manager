@@ -51,11 +51,11 @@ Location: this stores the Region and Zone values for setting the mining location
 Location: [2,3]
 ```
 
-Auto: if true, then the miner will automatically find and select the best location on start up. It must be set to false if you want to manually set the location.
+Auto: if true, then the miner will automatically find and select the best location on start up. If set to false and a location is not provided via arguments the location will default to Location set in config.yaml.
 
 Mine: if true, the miner will mine. This value must be set true in order to mine. If it is set false, then the manager will not mine (though it will perform other functions, such as subscribing to the chains so it will stay updated).
 
-Optimize: if true, then periodically the manager will check the difficulty of the chains and, if a chain with lower difficulty is found, it will switch to that location. If set to false, it will only mine at the location set at startup.
+Optimize: if true, then periodically the manager will check the difficulty of the chains and, if a chain with lower difficulty is found, it will switch to that location. If set to false, it will only mine at the location set at startup. (Note: this feature is part of auto-miner mode. During manual mining this will be ignored.)
 
 OptimizeTimer: this value represents how many minutes between Optimize checks the manager will make. By default the value is set to 10.
 
@@ -65,7 +65,7 @@ RegionURLs: stores the URLs for the Region chains. Should not be changed.
 
 ZoneURLs: stores the URLs for the Zone chains. Should not be changed.
 
-Note that the values supplied in the config.yaml file can be overridden with the appropriate command and arguments.
+Note that some of the values supplied in the config.yaml file can be overridden with the appropriate command and arguments.
 
 ## Run the manager
 
