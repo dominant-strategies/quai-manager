@@ -63,12 +63,20 @@ RegionURLs: stores the URLs for the Region chains. Should not be changed.
 
 ZoneURLs: stores the URLs for the Zone chains. Should not be changed.
 
-The below command runs the manager:
+Note that the values supplied in the config.yaml file can be overridden with the appropriate command and arguments.
+
+The below command runs the manager in auto-miner mode:
 
 Run via Makefile
 
 ```
 make run
+```
+
+When the manager starts it should print something like:
+
+```
+Auto-miner mode started with Optimizer=false and timer set to 10 minutes
 ```
 
 The manager can also be run in the background with logs saved to a file. It can be run similarly to make run, with the same auto-miner and optimizer enhancements possible.
@@ -78,6 +86,34 @@ To run in the background:
 ```
 make run-background
 ```
+
+It is also possible to manually set the location. Doing so will override the location value set in the config.yaml file. The appropriate arguments must also be supplied like this:
+
+```
+make run-mine region=1 zone=2
+```
+
+This will start the manager mining in Region 1 Zone 2. Location values must correspond to the current Quai Network ontology - at start, that ontology is 3x3, meaning Region values are 1-3 and Zone values are 1-3. So, for example, to mine in Region 3 Zone 1 you would enter:
+
+```
+make run-mine region=3 zone=1
+```
+
+If you start in manual mode the manager should print:
+
+```
+Manual mode started
+```
+
+Finally, if Auto is set to false in config.yaml and a location isn't provided through run-mine, then the manager will select the location value stored in config.yaml.
+
+Note! If you enter the arguments wrong the result might be the manager starting in auto-miner mode! The below might start the manager in auto-miner mode:
+
+```
+make run-mine regio=1 zone=2
+```
+
+So be careful that you've entered your commands and arguments correctly and the manager is showing the expected behavior!
 
 
 ### Set
