@@ -36,7 +36,7 @@ In the file config.yaml you should see something like this:
 Location: [1,1]
 Auto: true
 Mine: true
-Optimize: true
+Optimize: false
 OptimizeTimer: 10
 PrimeURL: "url"
 RegionURLs: "urls"
