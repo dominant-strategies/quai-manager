@@ -2,7 +2,7 @@
 Location: [1,1]
 Auto: true
 Mine: true
-Optimize: true
+Optimize: false
 OptimizeTimer: 10
 PrimeURL: "ws://127.0.0.1:8547"
 RegionURLs: ["ws://127.0.0.1:8579", "ws://127.0.0.1:8581", "ws://127.0.0.1:8583"]

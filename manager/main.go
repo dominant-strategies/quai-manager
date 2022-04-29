@@ -10,6 +10,8 @@ import (
 	"math"
 	"math/big"
 	"math/rand"
+	"os"
+	"strconv"
 	"sync"
 	"time"
 
@@ -101,17 +103,47 @@ func main() {
 	// set mining location
 	// if using the run-mine command then must remember to set region and zone locations
 	// if using run then the manager will automatically follow the chain with lowest difficulty
-	if config.Auto == true { // auto-miner
-		config.Location = findBestLocation(allClients)
-		config.Mine = true
-		changeLocationCycle = config.Optimize
-	} else { // if run
+	if len(os.Args) > 3 {
 		changeLocationCycle = false
-		location := config.Location
+		location := os.Args[1:3]
+		mine, _ := strconv.Atoi(os.Args[3:][0])
 
-		if len(location) != 2 {
+		// error management to check correct number of values provided
+		if len(location) == 0 {
+			log.Fatal("Please mention location where you want to mine")
+		}
+		if len(location) == 1 {
+			log.Fatal("You are missing either Region or Zone location")
+		}
+		if len(location) > 2 {
 			log.Fatal("Only specify 2 values for the location")
-			fmt.Println("Make sure to set config.yaml file properly")
+		}
+
+		// converting region and zone location values from string to integer
+		regionLoc, _ := strconv.Atoi(location[0])
+		zoneLoc, _ := strconv.Atoi(location[1])
+
+		// converting region and zone integer values to bytes
+		RegionLocArr := make([]byte, 8)
+		ZoneLocArr := make([]byte, 8)
+		binary.LittleEndian.PutUint64(RegionLocArr, uint64(regionLoc))
+		binary.LittleEndian.PutUint64(ZoneLocArr, uint64(zoneLoc))
+
+		config.Location = []byte{RegionLocArr[0], ZoneLocArr[0]}
+		config.Mine = mine == 1
+	} else {
+		if config.Auto == true { // auto-miner
+			config.Location = findBestLocation(allClients)
+			config.Mine = true
+			changeLocationCycle = config.Optimize
+		} else { // if run
+			changeLocationCycle = false
+			location := config.Location
+
+			if len(location) != 2 {
+				log.Fatal("Only specify 2 values for the location")
+				fmt.Println("Make sure to set config.yaml file properly")
+			}
 		}
 	}
 
