@@ -21,11 +21,13 @@ Build via GoLang directly
 go build -o ./build/bin/manager manager/main.go
 ```
 
-## Run the manager
-
-### Setting the region and zone flags for mining location
+### Auto-miner mode
 
 With the introduction of the auto-miner enhancement, it is now possible to let the manager automatically find and set itself to the best location. In this mode, the manager will start at the best location. There is an also an option to "optimize," and if set true it will also check periodically whether it is still in the best location and, if not, it will update to the best location. The best location is the chain with the lowest observed difficulty, meaning in auto-miner mode the manager automatically selects the chain likely to bring the best rewards to a miner while also automatically distributing hashrate across the network evenly.
+
+## Configuring the Manager
+
+### The config.yaml file
 
 In the file config.yaml you should see something like this:
 
@@ -64,6 +66,10 @@ RegionURLs: stores the URLs for the Region chains. Should not be changed.
 ZoneURLs: stores the URLs for the Zone chains. Should not be changed.
 
 Note that the values supplied in the config.yaml file can be overridden with the appropriate command and arguments.
+
+## Run the manager
+
+### Setting the region and zone flags for mining location
 
 The below command runs the manager in auto-miner mode:
 
