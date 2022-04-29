@@ -116,7 +116,7 @@ Finally, if Auto is set to false in config.yaml and a location isn't provided th
 Note! If you enter the arguments wrong the result might be the manager starting in auto-miner mode! The below might start the manager in auto-miner mode:
 
 ```
-make run-mine regio=1 zone=2
+make run-mine regio=1 zone=2   # this is a typo! avoid this!
 ```
 
 So be careful that you've entered your commands and arguments correctly and the manager is showing the expected behavior!
