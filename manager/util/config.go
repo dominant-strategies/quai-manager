@@ -7,11 +7,14 @@ import (
 )
 
 type Config struct {
-	PrimeURL   string
-	RegionURLs []string
-	ZoneURLs   [][]string
-	Location   []byte
-	Mine       bool
+	PrimeURL      string
+	RegionURLs    []string
+	ZoneURLs      [][]string
+	Location      []byte
+	Auto          bool
+	Mine          bool
+	Optimize      bool
+	OptimizeTimer int
 }
 
 // LoadConfig reads configuration from file or environment variables.

@@ -1,11 +1,13 @@
 package main
 
 import (
+	"bytes"
 	"context"
 	"encoding/binary"
 	"errors"
 	"fmt"
 	"log"
+	"math"
 	"math/big"
 	"math/rand"
 	"os"
@@ -48,6 +50,7 @@ type Manager struct {
 	resultCh  chan *types.HeaderBundle
 	startCh   chan struct{}
 	exitCh    chan struct{}
+	doneCh    chan bool // channel for updating location
 
 	BlockCache [][]*lru.Cache // Cache for the most recent entire blocks
 }
@@ -68,19 +71,50 @@ func main() {
 		log.Fatal("cannot load config:", err)
 	}
 
-	if len(os.Args) > 3 {
-		location := os.Args[1:3]
+	// Get URLs for all chains and set mining bools to represent if online
+	// getting clients comes first because manager can poll chains for auto-mine
+	allClients := getNodeClients(config)
 
+	// errror handling in case any connections failed
+	connectStatus := true
+	if !allClients.primeAvailable {
+		connectStatus = false
+	}
+	for _, status := range allClients.regionsAvailable {
+		if !status {
+			connectStatus = false
+		}
+	}
+	for _, zonesArray := range allClients.zonesAvailable {
+		for _, status := range zonesArray {
+			if !status {
+				connectStatus = false
+			}
+		}
+	}
+	if !connectStatus {
+		log.Println("Some or all connections to chains not available")
+		log.Println("For best performance check your connections and restart the manager")
+	}
+
+	// variable to check whether mining location is set manually or automatically
+	var changeLocationCycle bool
+
+	// set mining location
+	// if using the run-mine command then must remember to set region and zone locations
+	// if using run then the manager will automatically follow the chain with lowest difficulty
+	if len(os.Args) > 3 {
+		changeLocationCycle = false
+		location := os.Args[1:3]
 		mine, _ := strconv.Atoi(os.Args[3:][0])
 
+		// error management to check correct number of values provided
 		if len(location) == 0 {
-			log.Fatal("Please mention the location where you want to mine")
+			log.Fatal("Please mention location where you want to mine")
 		}
-
 		if len(location) == 1 {
-			log.Fatal("You are missing either the region or zone location")
+			log.Fatal("You are missing either Region or Zone location")
 		}
-
 		if len(location) > 2 {
 			log.Fatal("Only specify 2 values for the location")
 		}
@@ -89,7 +123,7 @@ func main() {
 		regionLoc, _ := strconv.Atoi(location[0])
 		zoneLoc, _ := strconv.Atoi(location[1])
 
-		// converting the region and zone integer values to bytes
+		// converting region and zone integer values to bytes
 		RegionLocArr := make([]byte, 8)
 		ZoneLocArr := make([]byte, 8)
 		binary.LittleEndian.PutUint64(RegionLocArr, uint64(regionLoc))
@@ -97,15 +131,23 @@ func main() {
 
 		config.Location = []byte{RegionLocArr[0], ZoneLocArr[0]}
 		config.Mine = mine == 1
-	}
-	// Get URLs for all chains and set mining bools; if true then mine
-	allClients, intendedCount := getMiningClients(config)
+		fmt.Println("Manual mode started")
+	} else {
+		if config.Auto == true { // auto-miner
+			config.Location = findBestLocation(allClients)
+			config.Mine = true
+			changeLocationCycle = config.Optimize
+			fmt.Println("Aut-miner mode started with Optimizer= ", config.Optimize, "and timer set to ", config.OptimizeTimer, "minutes")
+		} else { // if run
+			changeLocationCycle = false
+			location := config.Location
 
-	// errror handling in case any connections failed
-	if intendedCount < 13 {
-		log.Println("some or all connections not succeeded")
-		log.Println("connections succeeded ", allClients)
-		log.Println("test your internect connection and/or that you have go-quai set up properly")
+			if len(location) != 2 {
+				log.Fatal("Only specify 2 values for the location")
+				fmt.Println("Make sure to set config.yaml file properly")
+			}
+			fmt.Println("Manual mode started")
+		}
 	}
 
 	header := &types.Header{
@@ -146,6 +188,7 @@ func main() {
 		updatedCh:            make(chan *types.Header, resultQueueSize),
 		exitCh:               make(chan struct{}),
 		startCh:              make(chan struct{}, 1),
+		doneCh:               make(chan bool),
 		location:             config.Location,
 	}
 
@@ -156,16 +199,7 @@ func main() {
 	if config.Mine {
 		log.Println("Starting manager in location ", config.Location)
 
-		// subscribing to the pending blocks
-		if m.orderedBlockClients.primeAvailable {
-			go m.subscribePendingHeader(m.orderedBlockClients.primeClient, 0)
-		}
-		if m.orderedBlockClients.regionsAvailable[m.location[0]-1] {
-			go m.subscribePendingHeader(m.orderedBlockClients.regionClients[m.location[0]-1], 1)
-		}
-		if m.orderedBlockClients.zonesAvailable[m.location[0]-1][m.location[1]-1] {
-			go m.subscribePendingHeader(m.orderedBlockClients.zoneClients[m.location[0]-1][m.location[1]-1], 2)
-		}
+		m.subscribeAllPendingBlocks()
 
 		go m.resultLoop()
 
@@ -176,22 +210,18 @@ func main() {
 		go m.loopGlobalBlock()
 
 		// fetching the pending blocks
-		if m.orderedBlockClients.primeAvailable && checkConnection(m.orderedBlockClients.primeClient) {
-			go m.fetchPendingBlocks(m.orderedBlockClients.primeClient, 0)
-		}
-		if m.orderedBlockClients.regionsAvailable[m.location[0]-1] && checkConnection(m.orderedBlockClients.regionClients[m.location[0]-1]) {
-			go m.fetchPendingBlocks(m.orderedBlockClients.regionClients[m.location[0]-1], 1)
-		}
-		if m.orderedBlockClients.zonesAvailable[m.location[0]-1][m.location[1]-1] && checkConnection(m.orderedBlockClients.zoneClients[m.location[0]-1][m.location[1]-1]) {
-			go m.fetchPendingBlocks(m.orderedBlockClients.zoneClients[m.location[0]-1][m.location[1]-1], 2)
+		m.fetchAllPendingBlocks()
+
+		if changeLocationCycle {
+			go m.checkBestLocation(config.OptimizeTimer)
 		}
 	}
 	<-exit
 }
 
-// getMiningClients takes in a config and retrieves the Prime, Region, and Zone client
+// getNodeClients takes in a config and retrieves the Prime, Region, and Zone client
 // that is used for mining in a slice.
-func getMiningClients(config util.Config) (orderedBlockClients, int) {
+func getNodeClients(config util.Config) orderedBlockClients {
 
 	// initializing all the clients
 	allClients := orderedBlockClients{
@@ -209,14 +239,11 @@ func getMiningClients(config util.Config) (orderedBlockClients, int) {
 		allClients.zonesAvailable[i] = make([]bool, 3)
 	}
 
-	var intendedCount int = 0 // count how many connections there should be for error checking
-
 	// add Prime to orderedBlockClient array at [0]
 	if config.PrimeURL != "" {
-		intendedCount++
 		primeClient, err := ethclient.Dial(config.PrimeURL)
 		if err != nil {
-			log.Println("Error connecting to Prime mining node")
+			log.Println("Error connecting to Prime mining node ", config.PrimeURL)
 		} else {
 			allClients.primeClient = primeClient
 			allClients.primeAvailable = true
@@ -228,7 +255,6 @@ func getMiningClients(config util.Config) (orderedBlockClients, int) {
 	for i, URL := range config.RegionURLs {
 		regionURL := URL
 		if regionURL != "" {
-			intendedCount++
 			regionClient, err := ethclient.Dial(regionURL)
 			if err != nil {
 				log.Println("Error connecting to Region mining node ", URL, " in location ", i)
@@ -245,10 +271,9 @@ func getMiningClients(config util.Config) (orderedBlockClients, int) {
 	for i, zonesURLs := range config.ZoneURLs {
 		for j, zoneURL := range zonesURLs {
 			if zoneURL != "" {
-				intendedCount++
 				zoneClient, err := ethclient.Dial(zoneURL)
 				if err != nil {
-					log.Println("Error connecting to Zone mining node")
+					log.Println("Error connecting to Zone mining node ", zoneURL, " in location ", i, " ", j)
 					allClients.zonesAvailable[i][j] = false
 				} else {
 					allClients.zonesAvailable[i][j] = true
@@ -257,12 +282,14 @@ func getMiningClients(config util.Config) (orderedBlockClients, int) {
 			}
 		}
 	}
-	return allClients, intendedCount
+	return allClients
 }
 
 // subscribePendingHeader subscribes to the head of the mining nodes in order to pass
 // the most up to date block to the miner within the manager.
 func (m *Manager) subscribePendingHeader(client *ethclient.Client, sliceIndex int) {
+	log.Println("Subscribe to pending header at context ", sliceIndex)
+	log.Println("Current location is ", m.location)
 	// check the status of the sync
 	checkSync, err := client.SyncProgress(context.Background())
 
@@ -285,6 +312,7 @@ func (m *Manager) subscribePendingHeader(client *ethclient.Client, sliceIndex in
 		}
 	}
 
+	// done channel in case best Location updates
 	// subscribe to the pending block only if not synching
 	if checkSync == nil && err == nil {
 		// Wait for chain events and push them to clients
@@ -301,6 +329,9 @@ func (m *Manager) subscribePendingHeader(client *ethclient.Client, sliceIndex in
 			case <-header:
 				// New head arrived, send if for state update if there's none running
 				m.fetchPendingBlocks(client, sliceIndex)
+			case <-m.doneCh: // location updated and this routine needs to be stopped to start a new one
+				log.Println("closing Pending Header subscription for ", client, " slice index ", sliceIndex)
+				break
 			}
 		}
 	}
@@ -332,6 +363,7 @@ func (m *Manager) subscribeNewHeadClient(client *ethclient.Client, location stri
 	for {
 		select {
 		case newHead := <-newHeadChannel:
+			log.Println("header received from ethclient SubscribeNewHead ", newHead.Hash())
 			// get the block and receipt block
 			block, err := client.BlockByHash(context.Background(), newHead.Hash())
 			if err != nil {
@@ -514,7 +546,7 @@ func (m *Manager) sendReOrgHeader(header *types.Header, location string, difficu
 	}
 }
 
-// fetchPendingBlocks gets the latest block when we have received a new pending header. This will get the receipts,
+// PendingBlocks gets the latest block when we have received a new pending header. This will get the receipts,
 // transactions, and uncles to be stored during mining.
 func (m *Manager) fetchPendingBlocks(client *ethclient.Client, sliceIndex int) {
 	retryAttempts := 5
@@ -552,7 +584,7 @@ func (m *Manager) fetchPendingBlocks(client *ethclient.Client, sliceIndex int) {
 
 			if i >= retryAttempts {
 				log.Println("Pending block was never found for index:", sliceIndex, " even after ", retryAttempts, " retry attempts ", "error:", err)
-				return
+				break
 			}
 
 			time.Sleep(time.Second)
@@ -671,6 +703,7 @@ func (m *Manager) miningLoop() error {
 	for {
 		select {
 		case header := <-m.updatedCh:
+			log.Println("header from updatedCh ", header.Hash())
 			// Mine the header here
 			// Return the valid header with proper nonce and mix digest
 			// Interrupt previous sealing operation
@@ -725,6 +758,7 @@ func (m *Manager) resultLoop() error {
 		case bundle := <-m.resultCh:
 			m.lock.Lock()
 			header := bundle.Header
+			log.Println("header after resultCh ", header.Hash())
 
 			if bundle.Context == 0 {
 				log.Println("PRIME: ", header.Number, header.Hash())
@@ -737,6 +771,9 @@ func (m *Manager) resultLoop() error {
 			if bundle.Context == 2 {
 				log.Println("ZONE:  ", header.Number, header.Hash())
 			}
+
+			// print m.pendingBlocks
+			log.Println("pendingBlocks is now: ", m.pendingBlocks)
 
 			// Check to see that all nodes are running before sending blocks to them.
 			if !m.allChainsOnline() {
@@ -756,11 +793,11 @@ func (m *Manager) resultLoop() error {
 				go m.SendClientsMinedExtBlock(2, []int{0, 1}, header, &wg)
 				wg.Wait()
 				wg.Add(1)
-				go m.SendMinedBlock(2, header, &wg)
+				go m.SendMinedBlock(0, header, &wg)
 				wg.Add(1)
 				go m.SendMinedBlock(1, header, &wg)
 				wg.Add(1)
-				go m.SendMinedBlock(0, header, &wg)
+				go m.SendMinedBlock(2, header, &wg)
 				wg.Wait()
 			}
 
@@ -773,9 +810,9 @@ func (m *Manager) resultLoop() error {
 				go m.SendClientsMinedExtBlock(2, []int{0, 1}, header, &wg)
 				wg.Wait()
 				wg.Add(1)
-				go m.SendMinedBlock(2, header, &wg)
-				wg.Add(1)
 				go m.SendMinedBlock(1, header, &wg)
+				wg.Add(1)
+				go m.SendMinedBlock(2, header, &wg)
 				wg.Wait()
 			}
 
@@ -862,6 +899,7 @@ func (m *Manager) SendClientsExtBlock(mined int, externalContexts []int, block *
 // SendMinedBlock sends the mined block to its mining client with the transactions, uncles, and receipts.
 func (m *Manager) SendMinedBlock(mined int, header *types.Header, wg *sync.WaitGroup) {
 	receiptBlock := m.pendingBlocks[mined]
+	log.Println("receiptBlock in SendMinedBlock ", receiptBlock)
 	block := types.NewBlockWithHeader(receiptBlock.Header()).WithBody(receiptBlock.Transactions(), receiptBlock.Uncles())
 	if block != nil {
 		sealed := block.WithSeal(header)
@@ -887,5 +925,106 @@ func checkConnection(client *ethclient.Client) bool {
 		return false
 	} else {
 		return true
+	}
+}
+
+// Examines the Quai Network to find the Region-Zone location with lowest difficulty.
+func findBestLocation(clients orderedBlockClients) []byte {
+	lowestRegion := big.NewInt(math.MaxInt) // integer for holding lowest Region difficulty
+	lowestZone := big.NewInt(math.MaxInt)   // integer for holding lowest Zone difficulty
+	var regionLocation int                  // remember to return location as []byte with Zone1-1 = [1,1]
+	var zoneLocation int
+
+	// first find the Region chain with lowest difficulty
+	for i, client := range clients.regionClients {
+		latestHeader, err := client.HeaderByNumber(context.Background(), nil)
+		if err != nil {
+			log.Println("Error: connection lost during request")
+			log.Println(err)
+		} else {
+			difficulty := latestHeader.Difficulty[1]
+			if difficulty.Cmp(lowestRegion) == -1 {
+				regionLocation = i + 1
+				lowestRegion = difficulty
+			}
+			fmt.Println("region ", i+1, " difficulty ", difficulty)
+		}
+	}
+	// next find Zone chain inside Region with lowest difficulty
+	for i, client := range clients.zoneClients[regionLocation-1] {
+		latestHeader, err := client.HeaderByNumber(context.Background(), nil)
+		if err != nil {
+			log.Println("Error: connect lost during request")
+			log.Println(err)
+		} else {
+			difficulty := latestHeader.Difficulty[2]
+			if difficulty.Cmp(lowestZone) == -1 {
+				zoneLocation = i + 1
+				lowestZone = difficulty
+			}
+			fmt.Println("zone ", i+1, " difficulty ", difficulty)
+		}
+	}
+
+	// print location selected
+	fmt.Println("Region location selected: ", regionLocation)
+	fmt.Println("Zone location selected: ", zoneLocation)
+	regionBytes := make([]byte, 8)
+	zoneBytes := make([]byte, 8)
+	binary.LittleEndian.PutUint64(regionBytes, uint64(regionLocation))
+	binary.LittleEndian.PutUint64(zoneBytes, uint64(zoneLocation))
+	// return location to config
+	return []byte{regionBytes[0], zoneBytes[0]}
+}
+
+// Checks for best location to mine every 10 minutes;
+// if better location is found it will initiate the change to the config.
+func (m *Manager) checkBestLocation(timer int) {
+	ticker := time.NewTicker(time.Duration(timer) * time.Minute)
+	go func() {
+		for {
+			select {
+			case <-exit:
+				ticker.Stop()
+				return
+			case <-ticker.C:
+				newLocation := findBestLocation(m.orderedBlockClients)
+				// check if location has changed, and if true, update mining processes
+				if !bytes.Equal(newLocation, m.location) {
+					m.doneCh <- true // channel to make current processes stop
+					m.location = newLocation
+					m.doneCh <- false // set back to false to let new mining processes start
+					m.subscribeAllPendingBlocks()
+					m.fetchAllPendingBlocks()
+				}
+			}
+		}
+	}()
+}
+
+// Bundle of goroutines that need to be stopped and restarted if/when location updates.
+func (m *Manager) subscribeAllPendingBlocks() {
+	// subscribing to the pending blocks
+	if m.orderedBlockClients.primeAvailable && checkConnection(m.orderedBlockClients.primeClient) {
+		go m.subscribePendingHeader(m.orderedBlockClients.primeClient, 0)
+	}
+	if m.orderedBlockClients.regionsAvailable[m.location[0]-1] && checkConnection(m.orderedBlockClients.regionClients[m.location[0]-1]) {
+		go m.subscribePendingHeader(m.orderedBlockClients.regionClients[m.location[0]-1], 1)
+	}
+	if m.orderedBlockClients.zonesAvailable[m.location[0]-1][m.location[1]-1] && checkConnection(m.orderedBlockClients.zoneClients[m.location[0]-1][m.location[1]-1]) {
+		go m.subscribePendingHeader(m.orderedBlockClients.zoneClients[m.location[0]-1][m.location[1]-1], 2)
+	}
+}
+
+// Bundle of goroutines that need to be stopped and restarted if/when location updates.
+func (m *Manager) fetchAllPendingBlocks() {
+	if m.orderedBlockClients.primeAvailable && checkConnection(m.orderedBlockClients.primeClient) {
+		go m.fetchPendingBlocks(m.orderedBlockClients.primeClient, 0)
+	}
+	if m.orderedBlockClients.regionsAvailable[m.location[0]-1] && checkConnection(m.orderedBlockClients.regionClients[m.location[0]-1]) {
+		go m.fetchPendingBlocks(m.orderedBlockClients.regionClients[m.location[0]-1], 1)
+	}
+	if m.orderedBlockClients.zonesAvailable[m.location[0]-1][m.location[1]-1] && checkConnection(m.orderedBlockClients.zoneClients[m.location[0]-1][m.location[1]-1]) {
+		go m.fetchPendingBlocks(m.orderedBlockClients.zoneClients[m.location[0]-1][m.location[1]-1], 2)
 	}
 }
