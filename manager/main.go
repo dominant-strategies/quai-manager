@@ -288,7 +288,6 @@ func getNodeClients(config util.Config) orderedBlockClients {
 // subscribePendingHeader subscribes to the head of the mining nodes in order to pass
 // the most up to date block to the miner within the manager.
 func (m *Manager) subscribePendingHeader(client *ethclient.Client, sliceIndex int) {
-	log.Println("Subscribe to pending header at context ", sliceIndex)
 	log.Println("Current location is ", m.location)
 	// check the status of the sync
 	checkSync, err := client.SyncProgress(context.Background())
@@ -330,7 +329,6 @@ func (m *Manager) subscribePendingHeader(client *ethclient.Client, sliceIndex in
 				// New head arrived, send if for state update if there's none running
 				m.fetchPendingBlocks(client, sliceIndex)
 			case <-m.doneCh: // location updated and this routine needs to be stopped to start a new one
-				log.Println("closing Pending Header subscription for ", client, " slice index ", sliceIndex)
 				break
 			}
 		}
@@ -363,7 +361,6 @@ func (m *Manager) subscribeNewHeadClient(client *ethclient.Client, location stri
 	for {
 		select {
 		case newHead := <-newHeadChannel:
-			log.Println("header received from ethclient SubscribeNewHead ", newHead.Hash())
 			// get the block and receipt block
 			block, err := client.BlockByHash(context.Background(), newHead.Hash())
 			if err != nil {
@@ -703,7 +700,6 @@ func (m *Manager) miningLoop() error {
 	for {
 		select {
 		case header := <-m.updatedCh:
-			log.Println("header from updatedCh ", header.Hash())
 			// Mine the header here
 			// Return the valid header with proper nonce and mix digest
 			// Interrupt previous sealing operation
@@ -758,7 +754,6 @@ func (m *Manager) resultLoop() error {
 		case bundle := <-m.resultCh:
 			m.lock.Lock()
 			header := bundle.Header
-			log.Println("header after resultCh ", header.Hash())
 
 			if bundle.Context == 0 {
 				log.Println("PRIME: ", header.Number, header.Hash())
@@ -771,9 +766,6 @@ func (m *Manager) resultLoop() error {
 			if bundle.Context == 2 {
 				log.Println("ZONE:  ", header.Number, header.Hash())
 			}
-
-			// print m.pendingBlocks
-			log.Println("pendingBlocks is now: ", m.pendingBlocks)
 
 			// Check to see that all nodes are running before sending blocks to them.
 			if !m.allChainsOnline() {
@@ -899,7 +891,6 @@ func (m *Manager) SendClientsExtBlock(mined int, externalContexts []int, block *
 // SendMinedBlock sends the mined block to its mining client with the transactions, uncles, and receipts.
 func (m *Manager) SendMinedBlock(mined int, header *types.Header, wg *sync.WaitGroup) {
 	receiptBlock := m.pendingBlocks[mined]
-	log.Println("receiptBlock in SendMinedBlock ", receiptBlock)
 	block := types.NewBlockWithHeader(receiptBlock.Header()).WithBody(receiptBlock.Transactions(), receiptBlock.Uncles())
 	if block != nil {
 		sealed := block.WithSeal(header)
