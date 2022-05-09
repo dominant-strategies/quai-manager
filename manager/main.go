@@ -133,7 +133,7 @@ func main() {
 		config.Mine = mine == 1
 		fmt.Println("Manual mode started")
 	} else {
-		if config.Auto == true { // auto-miner
+		if config.Auto { // auto-miner
 			config.Location = findBestLocation(allClients)
 			config.Mine = true
 			changeLocationCycle = config.Optimize
