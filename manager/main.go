@@ -509,7 +509,7 @@ func (m *Manager) subscribeReOrgClients(client *ethclient.Client, location strin
 	}
 }
 
-// filterReOrgData constructs a map
+// filterReOrgData constructs a map to store the rollback point for each region location
 func (m *Manager) filterReOrgData(headers []*types.Header) map[int]*types.Header {
 	var filteredReOrgData = map[int]*types.Header{}
 	for _, header := range headers {
