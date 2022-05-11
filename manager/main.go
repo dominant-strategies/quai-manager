@@ -531,6 +531,10 @@ func (m *Manager) subscribeMissingExternalBlockClient(client *ethclient.Client) 
 				index = 12
 				ctx = 2
 			}
+			if m.orderedBlockClients[index].chainAvailable == "" {
+				log.Print("A node is missing an external block in a location we aren't running! Location: ", location)
+				continue
+			}
 			block, err := m.orderedBlockClients[index].chainClient.BlockByHash(context.Background(), missingExternalBlock.Hash())
 			if err != nil {
 				log.Print("Failed to get block from chain in ", location, err)
