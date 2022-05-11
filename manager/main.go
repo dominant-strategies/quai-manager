@@ -486,13 +486,43 @@ func (m *Manager) subscribeReOrgClients(client *ethclient.Client, location strin
 				if len(reOrgData.OldChainHeaders) == 0 {
 					continue // might indicate an error
 				} else if len(reOrgData.OldChainHeaders) == 1 {
-					m.sendReOrgHeader(reOrgData.OldChainHeaders[0], location, difficultyContext)
+					m.sendReOrgHeader(reOrgData.OldChainHeaders[0], getRegionIndex(location)-1, difficultyContext)
 				} else {
-					m.sendReOrgHeader(reOrgData.OldChainHeaders[len(reOrgData.OldChainHeaders)-2], location, difficultyContext)
+					// If the reorg occured in prime there is a case where there can be prime headers
+					// from different locations than the mining location and we need to rollback the region chains
+					// and its subordinate zone chains to the first instance of the prime coincident block occurance in each region context
+					if location == "prime" {
+						filteredReOrgData := m.filterReOrgData(reOrgData.OldChainHeaders)
+						for location, header := range filteredReOrgData {
+							m.sendReOrgHeader(header, location, difficultyContext)
+						}
+					} else {
+						regionLocation := getRegionIndex(location) - 1
+						if regionLocation == -1 {
+							log.Fatal("Rollback initiated from an unknown location")
+						}
+						m.sendReOrgHeader(reOrgData.OldChainHeaders[len(reOrgData.OldChainHeaders)-2], regionLocation, difficultyContext)
+					}
 				}
 			}
 		}
 	}
+}
+
+// filterReOrgData constructs a map
+func (m *Manager) filterReOrgData(headers []*types.Header) map[int]*types.Header {
+	var filteredReOrgData = map[int]*types.Header{}
+	for _, header := range headers {
+		_, exists := filteredReOrgData[int(header.Location[0])]
+		// Check if the entry already exists and if the block in the region context is earlier
+		// this ensures that we don't send in extra requests during a reorg rollback
+		if exists && header.Number[1].Cmp(filteredReOrgData[int(header.Location[0])].Number[1]) >= 0 {
+			continue
+		} else {
+			filteredReOrgData[int(header.Location[0])] = header
+		}
+	}
+	return filteredReOrgData
 }
 
 func (m *Manager) subscribeUncleClients(client *ethclient.Client, location string, difficultyContext int) {
@@ -507,7 +537,11 @@ func (m *Manager) subscribeUncleClients(client *ethclient.Client, location strin
 		select {
 		case uncleEvent := <-uncleEvent:
 			fmt.Println("uncleEvent", uncleEvent.Hash(), location, difficultyContext)
-			m.sendReOrgHeader(uncleEvent, location, difficultyContext)
+			regionLocation := getRegionIndex(location) - 1
+			if regionLocation == -1 {
+				log.Fatal("Rollback initiated from an unknown location")
+			}
+			m.sendReOrgHeader(uncleEvent, regionLocation, difficultyContext)
 		}
 	}
 }
@@ -527,21 +561,18 @@ func getRegionIndex(location string) int {
 }
 
 // sendReOrgHeader sends the reorg header to the respective region and zone clients
-func (m *Manager) sendReOrgHeader(header *types.Header, location string, difficultyContext int) {
+func (m *Manager) sendReOrgHeader(header *types.Header, location int, difficultyContext int) {
 	if difficultyContext == 0 {
-		// if the reorg event takes palce in prime then have to send the header to all
-		// the chains except for prime
-		for _, blockClient := range m.orderedBlockClients.regionClients {
-			blockClient.SendReOrgData(context.Background(), header)
-		}
-		for i := range m.orderedBlockClients.zoneClients {
-			for _, blockClient := range m.orderedBlockClients.zoneClients[i] {
-				blockClient.SendReOrgData(context.Background(), header)
-			}
+		// if the reorg happens in a prime context we have to send the reorg rollback
+		// to only the affected region and its zones
+		regionClient := m.orderedBlockClients.regionClients[location]
+		regionClient.SendReOrgData(context.Background(), header)
+		for _, zoneClient := range m.orderedBlockClients.zoneClients[location] {
+			zoneClient.SendReOrgData(context.Background(), header)
 		}
 	} else if difficultyContext == 1 {
-		for _, blockClient := range m.orderedBlockClients.zoneClients[getRegionIndex(location)-1] {
-			blockClient.SendReOrgData(context.Background(), header)
+		for _, zoneClient := range m.orderedBlockClients.zoneClients[location] {
+			zoneClient.SendReOrgData(context.Background(), header)
 		}
 	}
 }
