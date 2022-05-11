@@ -534,11 +534,15 @@ func (m *Manager) subscribeUncleClients(client *ethclient.Client, location strin
 		select {
 		case uncleEvent := <-uncleEvent:
 			fmt.Println("uncleEvent", uncleEvent.Hash(), location, difficultyContext)
-			regionLocation := getRegionIndex(location) - 1
-			if regionLocation == -2 {
-				log.Fatal("Rollback initiated from an unknown location")
+			if location == "prime" {
+				m.sendReOrgHeader(uncleEvent, 0, difficultyContext)
+			} else {
+				regionLocation := getRegionIndex(location) - 1
+				if regionLocation == -2 {
+					log.Fatal("Rollback initiated from an unknown location")
+				}
+				m.sendReOrgHeader(uncleEvent, regionLocation, difficultyContext)
 			}
-			m.sendReOrgHeader(uncleEvent, regionLocation, difficultyContext)
 		}
 	}
 }
