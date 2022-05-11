@@ -495,7 +495,7 @@ func (m *Manager) subscribeReOrgClients(client *ethclient.Client, location strin
 						}
 					} else {
 						regionLocation := getRegionIndex(location) - 1
-						if regionLocation == -1 {
+						if regionLocation == -2 {
 							log.Fatal("Rollback initiated from an unknown location")
 						}
 						m.sendReOrgHeader(reOrgData.OldChainHeaders[len(reOrgData.OldChainHeaders)-2], regionLocation, difficultyContext)
@@ -535,7 +535,7 @@ func (m *Manager) subscribeUncleClients(client *ethclient.Client, location strin
 		case uncleEvent := <-uncleEvent:
 			fmt.Println("uncleEvent", uncleEvent.Hash(), location, difficultyContext)
 			regionLocation := getRegionIndex(location) - 1
-			if regionLocation == -1 {
+			if regionLocation == -2 {
 				log.Fatal("Rollback initiated from an unknown location")
 			}
 			m.sendReOrgHeader(uncleEvent, regionLocation, difficultyContext)
