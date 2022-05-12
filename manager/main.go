@@ -483,7 +483,11 @@ func (m *Manager) subscribeReOrgClients(client *ethclient.Client, location strin
 				if len(reOrgData.OldChainHeaders) == 0 {
 					continue // might indicate an error
 				} else if len(reOrgData.OldChainHeaders) == 1 {
-					m.sendReOrgHeader(reOrgData.OldChainHeaders[0], getRegionIndex(location)-1, difficultyContext)
+					if location == "prime" {
+						m.sendReOrgHeader(reOrgData.OldChainHeaders[0], 0, difficultyContext)
+					} else {
+						m.sendReOrgHeader(reOrgData.OldChainHeaders[0], getRegionIndex(location)-1, difficultyContext)
+					}
 				} else {
 					// If the reorg occured in prime there is a case where there can be prime headers
 					// from different locations than the mining location and we need to rollback the region chains
