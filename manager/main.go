@@ -18,7 +18,7 @@ import (
 	lru "github.com/hashicorp/golang-lru"
 	"github.com/spruce-solutions/go-quai/common"
 	"github.com/spruce-solutions/go-quai/common/hexutil"
-	"github.com/spruce-solutions/go-quai/consensus/ethash"
+	"github.com/spruce-solutions/go-quai/consensus/blake3"
 	"github.com/spruce-solutions/go-quai/core"
 	"github.com/spruce-solutions/go-quai/core/types"
 	"github.com/spruce-solutions/go-quai/crypto"
@@ -34,7 +34,7 @@ const (
 var exit = make(chan bool)
 
 type Manager struct {
-	engine *ethash.Ethash
+	engine *blake3.Blake3
 
 	orderedBlockClients orderedBlockClients // will hold all chain URLs and settings in order from prime to zone-3-3
 	combinedHeader      *types.Header
@@ -168,16 +168,17 @@ func main() {
 		Bloom:             make([]types.Bloom, 3),
 	}
 
-	sharedConfig := ethash.Config{
-		PowMode:       ethash.ModeNormal,
-		CachesInMem:   3,
-		DatasetsInMem: 1,
+	blake3Config := blake3.Config{
+		MiningThreads: 0,
+		NotifyFull:    true,
 	}
-
-	ethashEngine := ethash.New(sharedConfig, nil, false)
-	ethashEngine.SetThreads(4)
+	log.Println("Building RandomX dataset")
+	blake3Engine, err := blake3.New(blake3Config, nil, false)
+	if nil != err {
+		log.Fatal("Failed to create RandomX engine: ", err)
+	}
 	m := &Manager{
-		engine:               ethashEngine,
+		engine:               blake3Engine,
 		orderedBlockClients:  allClients,
 		combinedHeader:       header,
 		pendingBlocks:        make([]*types.ReceiptBlock, 3),
@@ -676,7 +677,7 @@ func (m *Manager) loopGlobalBlock() error {
 			header := block.Header()
 			m.updateCombinedHeader(header, 0)
 			m.pendingBlocks[0] = block
-			header.Nonce, header.MixDigest = types.BlockNonce{}, common.Hash{}
+			header.Nonce = types.BlockNonce{}
 			select {
 			case m.updatedCh <- m.combinedHeader:
 			default:
@@ -686,7 +687,7 @@ func (m *Manager) loopGlobalBlock() error {
 			header := block.Header()
 			m.updateCombinedHeader(header, 1)
 			m.pendingBlocks[1] = block
-			header.Nonce, header.MixDigest = types.BlockNonce{}, common.Hash{}
+			header.Nonce = types.BlockNonce{}
 			select {
 			case m.updatedCh <- m.combinedHeader:
 			default:
@@ -696,7 +697,7 @@ func (m *Manager) loopGlobalBlock() error {
 			header := block.Header()
 			m.updateCombinedHeader(header, 2)
 			m.pendingBlocks[2] = block
-			header.Nonce, header.MixDigest = types.BlockNonce{}, common.Hash{}
+			header.Nonce = types.BlockNonce{}
 			select {
 			case m.updatedCh <- m.combinedHeader:
 			default:
@@ -752,8 +753,8 @@ func (m *Manager) miningLoop() error {
 
 			headerNull := m.headerNullCheck()
 			if headerNull == nil {
-				log.Println("Starting to mine block", header.Number, "location", m.location)
-				if err := m.engine.MergedMineSeal(header, m.resultCh, stopCh); err != nil {
+				log.Println("Starting to mine block", header.Number, "@ location", m.location, "w/ difficulty", header.Difficulty[2])
+				if err := m.engine.SealHeader(header, m.resultCh, stopCh); err != nil {
 					log.Println("Block sealing failed", "err", err)
 				}
 			}
