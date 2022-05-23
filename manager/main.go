@@ -753,7 +753,7 @@ func (m *Manager) miningLoop() error {
 
 			headerNull := m.headerNullCheck()
 			if headerNull == nil {
-				log.Println("Starting to mine block", header.Number, "@ location", m.location, "w/ difficulty", header.Difficulty[2])
+				log.Println("Starting to mine block", header.Number, "@ location", m.location, "w/ difficulty", header.Difficulty)
 				if err := m.engine.SealHeader(header, m.resultCh, stopCh); err != nil {
 					log.Println("Block sealing failed", "err", err)
 				}
@@ -825,11 +825,11 @@ func (m *Manager) resultLoop() error {
 				go m.SendClientsMinedExtBlock(2, []int{0, 1}, header, &wg)
 				wg.Wait()
 				wg.Add(1)
-				go m.SendMinedBlock(0, header, &wg)
+				go m.SendMinedBlock(2, header, &wg)
 				wg.Add(1)
 				go m.SendMinedBlock(1, header, &wg)
 				wg.Add(1)
-				go m.SendMinedBlock(2, header, &wg)
+				go m.SendMinedBlock(0, header, &wg)
 				wg.Wait()
 			}
 
@@ -842,9 +842,9 @@ func (m *Manager) resultLoop() error {
 				go m.SendClientsMinedExtBlock(2, []int{0, 1}, header, &wg)
 				wg.Wait()
 				wg.Add(1)
-				go m.SendMinedBlock(1, header, &wg)
-				wg.Add(1)
 				go m.SendMinedBlock(2, header, &wg)
+				wg.Add(1)
+				go m.SendMinedBlock(1, header, &wg)
 				wg.Wait()
 			}
 
