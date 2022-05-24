@@ -479,32 +479,31 @@ func (m *Manager) subscribeReOrgClients(client *ethclient.Client, location strin
 	for {
 		select {
 		case reOrgData := <-reOrgData:
-			heavier := compareReorgDifficulty(reOrgData.ReOrgHeader, reOrgData.OldChainHeaders, reOrgData.NewChainHeaders, difficultyContext)
-			if heavier {
-				if len(reOrgData.OldChainHeaders) == 0 {
-					continue // might indicate an error
-				} else if len(reOrgData.OldChainHeaders) == 1 {
-					if location == "prime" {
-						m.sendReOrgHeader(reOrgData.OldChainHeaders[0], 0, difficultyContext)
-					} else {
-						m.sendReOrgHeader(reOrgData.OldChainHeaders[0], getRegionIndex(location)-1, difficultyContext)
+			fmt.Println("reorgEvent", reOrgData.ReOrgHeader.Hash().Hex())
+
+			if len(reOrgData.OldChainHeaders) == 0 {
+				continue // might indicate an error
+			} else if len(reOrgData.OldChainHeaders) == 1 {
+				if location == "prime" {
+					m.sendReOrgHeader(reOrgData.OldChainHeaders[0], 0, difficultyContext)
+				} else {
+					m.sendReOrgHeader(reOrgData.OldChainHeaders[0], getRegionIndex(location)-1, difficultyContext)
+				}
+			} else {
+				// If the reorg occured in prime there is a case where there can be prime headers
+				// from different locations than the mining location and we need to rollback the region chains
+				// and its subordinate zone chains to the first instance of the prime coincident block occurance in each region context
+				if location == "prime" {
+					filteredReOrgData := m.filterReOrgData(reOrgData.OldChainHeaders)
+					for location, header := range filteredReOrgData {
+						m.sendReOrgHeader(header, location, difficultyContext)
 					}
 				} else {
-					// If the reorg occured in prime there is a case where there can be prime headers
-					// from different locations than the mining location and we need to rollback the region chains
-					// and its subordinate zone chains to the first instance of the prime coincident block occurance in each region context
-					if location == "prime" {
-						filteredReOrgData := m.filterReOrgData(reOrgData.OldChainHeaders)
-						for location, header := range filteredReOrgData {
-							m.sendReOrgHeader(header, location, difficultyContext)
-						}
-					} else {
-						regionLocation := getRegionIndex(location) - 1
-						if regionLocation == -2 {
-							log.Fatal("Rollback initiated from an unknown location")
-						}
-						m.sendReOrgHeader(reOrgData.OldChainHeaders[len(reOrgData.OldChainHeaders)-2], regionLocation, difficultyContext)
+					regionLocation := getRegionIndex(location) - 1
+					if regionLocation == -2 {
+						log.Fatal("Rollback initiated from an unknown location")
 					}
+					m.sendReOrgHeader(reOrgData.OldChainHeaders[len(reOrgData.OldChainHeaders)-2], regionLocation, difficultyContext)
 				}
 			}
 		}
