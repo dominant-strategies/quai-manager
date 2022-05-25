@@ -478,49 +478,29 @@ func (m *Manager) subscribeReOrgClients(client *ethclient.Client, location strin
 	for {
 		select {
 		case reOrgData := <-reOrgData:
-			heavier := compareReorgDifficulty(reOrgData.ReOrgHeader, reOrgData.OldChainHeaders, reOrgData.NewChainHeaders, difficultyContext)
-			if heavier {
-				if len(reOrgData.OldChainHeaders) == 0 {
-					continue // might indicate an error
-				} else if len(reOrgData.OldChainHeaders) == 1 {
-					if location == "prime" {
-						m.sendReOrgHeader(reOrgData.OldChainHeaders[0], 0, difficultyContext)
-					} else {
-						m.sendReOrgHeader(reOrgData.OldChainHeaders[0], getRegionIndex(location)-1, difficultyContext)
-					}
-				} else {
-					// If the reorg occured in prime there is a case where there can be prime headers
-					// from different locations than the mining location and we need to rollback the region chains
-					// and its subordinate zone chains to the first instance of the prime coincident block occurance in each region context
-					if location == "prime" {
-						filteredReOrgData := m.filterReOrgData(reOrgData.OldChainHeaders)
-						for location, header := range filteredReOrgData {
-							m.sendReOrgHeader(header, location, difficultyContext)
-						}
-					} else {
-						regionLocation := getRegionIndex(location) - 1
-						if regionLocation == -2 {
-							log.Fatal("Rollback initiated from an unknown location")
-						}
-						m.sendReOrgHeader(reOrgData.OldChainHeaders[len(reOrgData.OldChainHeaders)-2], regionLocation, difficultyContext)
-					}
-				}
+			fmt.Println("reorgEvent", reOrgData.ReOrgHeader.Hash().Hex(), location, difficultyContext)
+
+			filteredReOrgData := m.filterReOrgData(reOrgData.OldChainHeaders)
+			for location, header := range filteredReOrgData {
+				fmt.Println("2", "oldHeader", header.Hash().Hex(), location, difficultyContext)
+				m.sendReOrgHeader(header, header.Location, difficultyContext)
 			}
 		}
 	}
 }
 
 // filterReOrgData constructs a map to store the rollback point for each region location
-func (m *Manager) filterReOrgData(headers []*types.Header) map[int]*types.Header {
-	var filteredReOrgData = map[int]*types.Header{}
+func (m *Manager) filterReOrgData(headers []*types.Header) map[string]*types.Header {
+	var filteredReOrgData = map[string]*types.Header{}
 	for _, header := range headers {
-		_, exists := filteredReOrgData[int(header.Location[0])]
+		_, exists := filteredReOrgData[string(header.Location)]
 		// Check if the entry already exists and if the block in the region context is earlier
 		// this ensures that we don't send in extra requests during a reorg rollback
-		if exists && header.Number[1].Cmp(filteredReOrgData[int(header.Location[0])].Number[1]) >= 0 {
+		fmt.Println("Exists?", exists, header.Location, header.Hash().Hex())
+		if exists {
 			continue
 		} else {
-			filteredReOrgData[int(header.Location[0])] = header
+			filteredReOrgData[string(header.Location)] = header
 		}
 	}
 	return filteredReOrgData
@@ -537,16 +517,8 @@ func (m *Manager) subscribeUncleClients(client *ethclient.Client, location strin
 	for {
 		select {
 		case uncleEvent := <-uncleEvent:
-			fmt.Println("uncleEvent", uncleEvent.Hash(), location, difficultyContext)
-			if location == "prime" {
-				m.sendReOrgHeader(uncleEvent, 0, difficultyContext)
-			} else {
-				regionLocation := getRegionIndex(location) - 1
-				if regionLocation == -2 {
-					log.Fatal("Rollback initiated from an unknown location")
-				}
-				m.sendReOrgHeader(uncleEvent, regionLocation, difficultyContext)
-			}
+			fmt.Println("uncleEvent", uncleEvent.Hash(), uncleEvent.Location, location, difficultyContext)
+			m.sendReOrgHeader(uncleEvent, uncleEvent.Location, difficultyContext)
 		}
 	}
 }
@@ -566,19 +538,16 @@ func getRegionIndex(location string) int {
 }
 
 // sendReOrgHeader sends the reorg header to the respective region and zone clients
-func (m *Manager) sendReOrgHeader(header *types.Header, location int, difficultyContext int) {
-	if difficultyContext == 0 {
+func (m *Manager) sendReOrgHeader(header *types.Header, location []byte, difficultyContext int) {
+	if difficultyContext < 1 {
 		// if the reorg happens in a prime context we have to send the reorg rollback
 		// to only the affected region and its zones
-		regionClient := m.orderedBlockClients.regionClients[location]
+		regionClient := m.orderedBlockClients.regionClients[location[0]-1]
 		regionClient.SendReOrgData(context.Background(), header)
-		for _, zoneClient := range m.orderedBlockClients.zoneClients[location] {
-			zoneClient.SendReOrgData(context.Background(), header)
-		}
-	} else if difficultyContext == 1 {
-		for _, zoneClient := range m.orderedBlockClients.zoneClients[location] {
-			zoneClient.SendReOrgData(context.Background(), header)
-		}
+	}
+	if difficultyContext < 2 {
+		zoneClient := m.orderedBlockClients.zoneClients[location[0]-1][location[1]-1]
+		zoneClient.SendReOrgData(context.Background(), header)
 	}
 }
 
