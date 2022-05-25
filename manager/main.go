@@ -543,11 +543,11 @@ func (m *Manager) sendReOrgHeader(header *types.Header, location []byte, difficu
 		// if the reorg happens in a prime context we have to send the reorg rollback
 		// to only the affected region and its zones
 		regionClient := m.orderedBlockClients.regionClients[location[0]-1]
-		regionClient.SendReOrgData(context.Background(), header)
+		go regionClient.SendReOrgData(context.Background(), header)
 	}
 	if difficultyContext < 2 {
 		zoneClient := m.orderedBlockClients.zoneClients[location[0]-1][location[1]-1]
-		zoneClient.SendReOrgData(context.Background(), header)
+		go zoneClient.SendReOrgData(context.Background(), header)
 	}
 }
 
