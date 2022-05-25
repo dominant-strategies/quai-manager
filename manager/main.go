@@ -433,9 +433,16 @@ func (m *Manager) subscribeReOrg() {
 }
 
 func (m *Manager) subscribeMissingExternalBlock() {
-	for _, client := range m.orderedBlockClients {
-		if client.chainAvailable != "" {
-			m.subscribeMissingExternalBlockClient(client.chainClient)
+	// prime client
+	go m.subscribeMissingExternalBlockClient(m.orderedBlockClients.primeClient, []byte{0, 0})
+	// region clients
+	for i, regionClient := range m.orderedBlockClients.regionClients {
+		go m.subscribeMissingExternalBlockClient(regionClient, []byte{uint8(i), 0})
+	}
+	// zone clients
+	for i, zoneClients := range m.orderedBlockClients.zoneClients {
+		for j, zoneClient := range zoneClients {
+			go m.subscribeMissingExternalBlockClient(zoneClient, []byte{uint8(i), uint8(j)})
 		}
 	}
 }
@@ -502,8 +509,8 @@ func (m *Manager) subscribeReOrgClients(client *ethclient.Client, location strin
 	}
 }
 
-func (m *Manager) subscribeMissingExternalBlockClient(client *ethclient.Client) {
-	missingExternalBlockCh := make(chan *types.Header)
+func (m *Manager) subscribeMissingExternalBlockClient(client *ethclient.Client, chain []byte) {
+	missingExternalBlockCh := make(chan core.MissingExternalBlock)
 	sub, err := client.SubscribeMissingExternalBlock(context.Background(), missingExternalBlockCh)
 	if err != nil {
 		log.Fatal("Failed to subscribe to missing external block notifications", err)
@@ -513,87 +520,52 @@ func (m *Manager) subscribeMissingExternalBlockClient(client *ethclient.Client) 
 	for {
 		select {
 		case missingExternalBlock := <-missingExternalBlockCh:
-			location := missingExternalBlock.Location
-			var index int
-			var ctx int64
-			switch {
-			case bytes.Equal(location, []byte{0, 0}):
-				index = 0
-				ctx = 0
-			case bytes.Equal(location, []byte{1, 0}):
-				index = 1
-				ctx = 1
-			case bytes.Equal(location, []byte{1, 1}):
-				index = 2
-				ctx = 2
-			case bytes.Equal(location, []byte{1, 2}):
-				index = 3
-				ctx = 2
-			case bytes.Equal(location, []byte{1, 3}):
-				index = 4
-				ctx = 2
-			case bytes.Equal(location, []byte{2, 0}):
-				index = 5
-				ctx = 1
-			case bytes.Equal(location, []byte{2, 1}):
-				index = 6
-				ctx = 2
-			case bytes.Equal(location, []byte{2, 2}):
-				index = 7
-				ctx = 2
-			case bytes.Equal(location, []byte{2, 3}):
-				index = 8
-				ctx = 2
-			case bytes.Equal(location, []byte{3, 0}):
-				index = 9
-				ctx = 1
-			case bytes.Equal(location, []byte{3, 1}):
-				index = 10
-				ctx = 2
-			case bytes.Equal(location, []byte{3, 2}):
-				index = 11
-				ctx = 2
-			case bytes.Equal(location, []byte{3, 3}):
-				index = 12
-				ctx = 2
+			fmt.Println("Missing external Block event Block", missingExternalBlock.Hash)
+			var client *ethclient.Client
+			var cxt *big.Int
+			// prime
+			if missingExternalBlock.Context == 0 {
+				client = m.orderedBlockClients.primeClient
+				cxt = big.NewInt(0)
 			}
-			if m.orderedBlockClients[index].chainAvailable == "" {
-				log.Print("A node is missing an external block in a location we aren't running! Location: ", location)
-				continue
+			// regions
+			if missingExternalBlock.Context == 1 {
+				client = m.orderedBlockClients.regionClients[int(missingExternalBlock.Location[0])-1]
+				cxt = big.NewInt(1)
 			}
-			block, err := m.orderedBlockClients[index].chainClient.BlockByHash(context.Background(), missingExternalBlock.Hash())
+			// zones
+			if missingExternalBlock.Context == 2 {
+				client = m.orderedBlockClients.zoneClients[int(missingExternalBlock.Location[0])-1][int(missingExternalBlock.Location[1])-1]
+				cxt = big.NewInt(2)
+			}
+			block, err := client.BlockByHash(context.Background(), missingExternalBlock.Hash)
 			if err != nil {
-				log.Print("Failed to get block from chain in ", location, err)
+				log.Println("Failed to get block from chain in ", chain, err)
 				continue
 			}
-			receipts, err := m.orderedBlockClients[index].chainClient.GetBlockReceipts(context.Background(), missingExternalBlock.Hash())
+			receipts, err := client.GetBlockReceipts(context.Background(), missingExternalBlock.Hash)
 			if err != nil {
-				log.Print("Failed to get block receipts from chain in ", location, err)
-				continue
-			}
-			if err := client.SendExternalBlock(context.Background(), block, receipts.Receipts(), big.NewInt(ctx)); err != nil {
-				log.Print("Failed to send external block to chain in ", location, err)
+				log.Println("Failed to get block receipts from chain in ", missingExternalBlock.Location, err)
 				continue
 			}
 
+			// sending the external Block back to the client
+			var extClient *ethclient.Client
+			if int(chain[0]) == 0 && int(chain[1]) == 0 {
+				extClient = m.orderedBlockClients.primeClient
+			} else if int(chain[0]) != 0 && int(chain[1]) == 0 {
+				extClient = m.orderedBlockClients.regionClients[chain[0]]
+			} else {
+				extClient = m.orderedBlockClients.zoneClients[chain[0]][chain[1]]
+			}
+
+			if err := extClient.SendExternalBlock(context.Background(), block, receipts.Receipts(), cxt); err != nil {
+				log.Println("Failed to send external block to chain in ", missingExternalBlock.Location, err)
+				continue
+			}
 		}
 	}
 }
-
-// sendReOrgHeader sends the reorg header to the respective region and zone clients
-func (m *Manager) sendReOrgHeader(header *types.Header, location string) {
-	if location == "prime" {
-		// if the reorg event takes palce in prime then have to send the header to all
-		// the chains except for prime
-		for _, blockClient := range m.orderedBlockClients[1:] { // start at 1 to skip Prime
-			blockClient.chainClient.SendReOrgData(context.Background(), header) // all clients pass thru regardless if mining
-		}
-	} else { // regions
-		// only subscribe to the zones
-		// send to the zone chain in the mining client and send to two other chains in the external clients
-		for _, blockClient := range m.orderedBlockClients[4:] {
-			blockClient.chainClient.SendReOrgData(context.Background(), header)
-		}
 
 func (m *Manager) subscribeUncleClients(client *ethclient.Client, location string, difficultyContext int) {
 	uncleEvent := make(chan *types.Header)
