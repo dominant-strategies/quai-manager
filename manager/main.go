@@ -437,12 +437,12 @@ func (m *Manager) subscribeMissingExternalBlock() {
 	go m.subscribeMissingExternalBlockClient(m.orderedBlockClients.primeClient, []byte{0, 0})
 	// region clients
 	for i, regionClient := range m.orderedBlockClients.regionClients {
-		go m.subscribeMissingExternalBlockClient(regionClient, []byte{uint8(i), 0})
+		go m.subscribeMissingExternalBlockClient(regionClient, []byte{uint8(i + 1), 0})
 	}
 	// zone clients
 	for i, zoneClients := range m.orderedBlockClients.zoneClients {
 		for j, zoneClient := range zoneClients {
-			go m.subscribeMissingExternalBlockClient(zoneClient, []byte{uint8(i), uint8(j)})
+			go m.subscribeMissingExternalBlockClient(zoneClient, []byte{uint8(i + 1), uint8(j + 1)})
 		}
 	}
 }
@@ -520,7 +520,7 @@ func (m *Manager) subscribeMissingExternalBlockClient(client *ethclient.Client, 
 	for {
 		select {
 		case missingExternalBlock := <-missingExternalBlockCh:
-			fmt.Println("Missing external Block event Block", missingExternalBlock.Hash)
+			fmt.Println("Missing external Block event Block", missingExternalBlock.Hash, missingExternalBlock.Location, missingExternalBlock.Context, "requested by chain", chain)
 			var client *ethclient.Client
 			var cxt *big.Int
 			// prime
@@ -554,9 +554,9 @@ func (m *Manager) subscribeMissingExternalBlockClient(client *ethclient.Client, 
 			if int(chain[0]) == 0 && int(chain[1]) == 0 {
 				extClient = m.orderedBlockClients.primeClient
 			} else if int(chain[0]) != 0 && int(chain[1]) == 0 {
-				extClient = m.orderedBlockClients.regionClients[chain[0]]
+				extClient = m.orderedBlockClients.regionClients[chain[0]-1]
 			} else {
-				extClient = m.orderedBlockClients.zoneClients[chain[0]][chain[1]]
+				extClient = m.orderedBlockClients.zoneClients[chain[0]-1][chain[1]-1]
 			}
 
 			if err := extClient.SendExternalBlock(context.Background(), block, receipts.Receipts(), cxt); err != nil {
@@ -852,13 +852,13 @@ func (m *Manager) resultLoop() error {
 			// Notify blocks to put in cache before assembling new block on node
 			if bundle.Context == 0 && header.Number[0] != nil {
 				var wg sync.WaitGroup
-				wg.Add(1)
-				go m.SendClientsMinedExtBlock(0, []int{1, 2}, header, &wg)
-				wg.Add(1)
-				go m.SendClientsMinedExtBlock(1, []int{0, 2}, header, &wg)
-				wg.Add(1)
-				go m.SendClientsMinedExtBlock(2, []int{0, 1}, header, &wg)
-				wg.Wait()
+				// wg.Add(1)
+				// go m.SendClientsMinedExtBlock(0, []int{1, 2}, header, &wg)
+				// wg.Add(1)
+				// go m.SendClientsMinedExtBlock(1, []int{0, 2}, header, &wg)
+				// wg.Add(1)
+				// go m.SendClientsMinedExtBlock(2, []int{0, 1}, header, &wg)
+				// wg.Wait()
 				wg.Add(1)
 				go m.SendMinedBlock(0, header, &wg)
 				wg.Add(1)
@@ -871,11 +871,11 @@ func (m *Manager) resultLoop() error {
 			// If Region difficulty send to Region
 			if bundle.Context == 1 && header.Number[1] != nil {
 				var wg sync.WaitGroup
-				wg.Add(1)
-				go m.SendClientsMinedExtBlock(1, []int{0, 2}, header, &wg)
-				wg.Add(1)
-				go m.SendClientsMinedExtBlock(2, []int{0, 1}, header, &wg)
-				wg.Wait()
+				// wg.Add(1)
+				// go m.SendClientsMinedExtBlock(1, []int{0, 2}, header, &wg)
+				// wg.Add(1)
+				// go m.SendClientsMinedExtBlock(2, []int{0, 1}, header, &wg)
+				// wg.Wait()
 				wg.Add(1)
 				go m.SendMinedBlock(1, header, &wg)
 				wg.Add(1)
@@ -886,9 +886,9 @@ func (m *Manager) resultLoop() error {
 			// If Zone difficulty send to Zone
 			if bundle.Context == 2 && header.Number[2] != nil {
 				var wg sync.WaitGroup
-				wg.Add(1)
-				go m.SendClientsMinedExtBlock(2, []int{0, 1}, header, &wg)
-				wg.Wait()
+				// wg.Add(1)
+				// go m.SendClientsMinedExtBlock(2, []int{0, 1}, header, &wg)
+				// wg.Wait()
 				wg.Add(1)
 				go m.SendMinedBlock(2, header, &wg)
 				wg.Wait()
