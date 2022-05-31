@@ -493,6 +493,10 @@ func (m *Manager) subscribeReOrgClients(client *ethclient.Client, location strin
 // filterReOrgData constructs a map to store the rollback point for each region location
 func (m *Manager) filterReOrgData(headers []*types.Header) map[string]*types.Header {
 	var filteredReOrgData = map[string]*types.Header{}
+	// Reverse header list
+	for i, j := 0, len(headers)-1; i < j; i, j = i+1, j-1 {
+		headers[i], headers[j] = headers[j], headers[i]
+	}
 	for _, header := range headers {
 		_, exists := filteredReOrgData[string(header.Location)]
 		// Check if the entry already exists and if the block in the region context is earlier
