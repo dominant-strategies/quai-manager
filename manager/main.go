@@ -338,24 +338,23 @@ func (m *Manager) subscribePendingHeader(client *ethclient.Client, sliceIndex in
 
 // subscribeNewHead passes new head blocks as external blocks to lower level chains.
 func (m *Manager) subscribeNewHead() {
-
-	prime := "prime"
-	regions := [3]string{"region-1", "region-2", "region-3"}
-
 	// subscribe to the prime client at context 0
-	go m.subscribeNewHeadClient(m.orderedBlockClients.primeClient, prime, 0)
+	go m.subscribeNewHeadClient(m.orderedBlockClients.primeClient, 0)
 	// subscribe to the region clients
 	for i, blockClient := range m.orderedBlockClients.regionClients {
-		go m.subscribeNewHeadClient(blockClient, regions[i], 1)
+		go m.subscribeNewHeadClient(blockClient, 1)
+		for _, zoneBlockClient := range m.orderedBlockClients.zoneClients[i] {
+			go m.subscribeNewHeadClient(zoneBlockClient, 2)
+		}
 	}
 }
 
-func (m *Manager) subscribeNewHeadClient(client *ethclient.Client, location string, difficultyContext int) {
+func (m *Manager) subscribeNewHeadClient(client *ethclient.Client, difficultyContext int) {
 	newHeadChannel := make(chan *types.Header, 1)
 	retryAttempts := 5
 	sub, err := client.SubscribeNewHead(context.Background(), newHeadChannel)
 	if err != nil {
-		log.Fatal("Failed to subscribe to the reorg notifications in ", location, err)
+		log.Fatal("Failed to subscribe to the new heqad notifications ", err)
 	}
 	defer sub.Unsubscribe()
 
