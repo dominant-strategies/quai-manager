@@ -871,14 +871,18 @@ func (m *Manager) SendClientsMinedExtBlock(mined int, externalContexts []int, he
 // ex. mined 2, externalContexts []int{0, 1} will send the Zone external block to Prime and Region.
 func (m *Manager) SendClientsExtBlock(mined int, externalContexts []int, block *types.Block, receiptBlock *types.ReceiptBlock) {
 	// first send the external block to the mining chains
+	fmt.Println("Sending external block to chains", receiptBlock.Header().Hash(), receiptBlock.Header().Location)
 	for i := 0; i < len(externalContexts); i++ {
 		if externalContexts[i] == 0 && m.orderedBlockClients.primeAvailable {
+			fmt.Println("Sending external block to mining Prime")
 			m.orderedBlockClients.primeClient.SendExternalBlock(context.Background(), block, receiptBlock.Receipts(), big.NewInt(int64(mined)))
 		}
 		if externalContexts[i] == 1 && m.orderedBlockClients.regionsAvailable[m.location[0]-1] {
+			fmt.Println("Sending external block to mining Region", m.location)
 			m.orderedBlockClients.regionClients[m.location[0]-1].SendExternalBlock(context.Background(), block, receiptBlock.Receipts(), big.NewInt(int64(mined)))
 		}
 		if externalContexts[i] == 2 && m.orderedBlockClients.zonesAvailable[m.location[0]-1][m.location[1]-1] {
+			fmt.Println("Sending external block to mining Zone", m.location)
 			m.orderedBlockClients.zoneClients[m.location[0]-1][m.location[1]-1].SendExternalBlock(context.Background(), block, receiptBlock.Receipts(), big.NewInt(int64(mined)))
 		}
 	}
@@ -886,6 +890,7 @@ func (m *Manager) SendClientsExtBlock(mined int, externalContexts []int, block *
 	for i, blockClient := range m.orderedBlockClients.regionClients {
 		miningRegion := int(m.location[0])-1 == i
 		if !miningRegion {
+			fmt.Println("Sending external block to non-mining Region", i)
 			blockClient.SendExternalBlock(context.Background(), block, receiptBlock.Receipts(), big.NewInt(int64(mined)))
 		}
 	}
@@ -894,6 +899,7 @@ func (m *Manager) SendClientsExtBlock(mined int, externalContexts []int, block *
 		for j, blockClient := range m.orderedBlockClients.zoneClients[i] {
 			miningZone := int(m.location[0])-1 == i && int(m.location[1])-1 == j
 			if !miningZone {
+				fmt.Println("Sending external block to non-mining Zone", i, j)
 				blockClient.SendExternalBlock(context.Background(), block, receiptBlock.Receipts(), big.NewInt(int64(mined)))
 			}
 		}
