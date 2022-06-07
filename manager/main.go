@@ -402,6 +402,7 @@ func (m *Manager) subscribeNewHeadClient(client *ethclient.Client, difficultyCon
 				}
 			}
 
+			log.Println("Received new head block:", "context", difficultyContext, "location", newHead.Location, "number", newHead.Number, "hash", newHead.Hash())
 			if difficultyContext == 0 {
 				m.SendClientsExtBlock(difficultyContext, []int{1, 2}, block, receiptBlock)
 			} else if difficultyContext == 1 {
@@ -874,7 +875,6 @@ func (m *Manager) SendClientsExtBlock(mined int, externalContexts []int, block *
 	blockLocation := block.Header().Location
 
 	for i := 0; i < len(externalContexts); i++ {
-		fmt.Println(externalContexts[i], m.orderedBlockClients.primeAvailable)
 		if externalContexts[i] == 0 && m.orderedBlockClients.primeAvailable {
 			m.orderedBlockClients.primeClient.SendExternalBlock(context.Background(), block, receiptBlock.Receipts(), big.NewInt(int64(mined)))
 		}
