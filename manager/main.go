@@ -871,7 +871,7 @@ func (m *Manager) SendClientsMinedExtBlock(mined int, externalContexts []int, he
 // ex. mined 2, externalContexts []int{0, 1} will send the Zone external block to Prime and Region.
 func (m *Manager) SendClientsExtBlock(mined int, externalContexts []int, block *types.Block, receiptBlock *types.ReceiptBlock) {
 	// first send the external block to the mining chains
-	fmt.Println("Sending external block to chains", receiptBlock.Header().Hash(), receiptBlock.Header().Location)
+	fmt.Println("Sending external block to chains", block.Hash(), block.Header().Location)
 	for i := 0; i < len(externalContexts); i++ {
 		if externalContexts[i] == 0 && m.orderedBlockClients.primeAvailable {
 			fmt.Println("Sending external block to mining Prime")
