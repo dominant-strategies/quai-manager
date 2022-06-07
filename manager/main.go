@@ -402,6 +402,7 @@ func (m *Manager) subscribeNewHeadClient(client *ethclient.Client, difficultyCon
 				}
 			}
 
+			fmt.Println("difficultyContext: ", difficultyContext)
 			if difficultyContext == 0 {
 				m.SendClientsExtBlock(difficultyContext, []int{1, 2}, block, receiptBlock)
 			} else if difficultyContext == 1 {
@@ -875,16 +876,17 @@ func (m *Manager) SendClientsExtBlock(mined int, externalContexts []int, block *
 	fmt.Println("Sending external block to chains", block.Hash(), blockLocation)
 
 	for i := 0; i < len(externalContexts); i++ {
+		fmt.Println(externalContexts[i], m.orderedBlockClients.primeAvailable)
 		if externalContexts[i] == 0 && m.orderedBlockClients.primeAvailable {
-			fmt.Println("Sending external block to mining Prime")
+			fmt.Println("Sending external block to mining Prime", block.Hash())
 			m.orderedBlockClients.primeClient.SendExternalBlock(context.Background(), block, receiptBlock.Receipts(), big.NewInt(int64(mined)))
 		}
 		if externalContexts[i] == 1 && m.orderedBlockClients.regionsAvailable[blockLocation[0]-1] {
-			fmt.Println("Sending external block to mining Region", blockLocation)
+			fmt.Println("Sending external block to mining Region", blockLocation, block.Hash())
 			m.orderedBlockClients.regionClients[blockLocation[0]-1].SendExternalBlock(context.Background(), block, receiptBlock.Receipts(), big.NewInt(int64(mined)))
 		}
 		if externalContexts[i] == 2 && m.orderedBlockClients.zonesAvailable[blockLocation[0]-1][blockLocation[1]-1] {
-			fmt.Println("Sending external block to mining Zone", blockLocation)
+			fmt.Println("Sending external block to mining Zone", blockLocation, block.Hash())
 			m.orderedBlockClients.zoneClients[blockLocation[0]-1][blockLocation[1]-1].SendExternalBlock(context.Background(), block, receiptBlock.Receipts(), big.NewInt(int64(mined)))
 		}
 	}
@@ -892,7 +894,7 @@ func (m *Manager) SendClientsExtBlock(mined int, externalContexts []int, block *
 	for i, blockClient := range m.orderedBlockClients.regionClients {
 		miningRegion := int(blockLocation[0])-1 == i
 		if !miningRegion {
-			fmt.Println("Sending external block to non-mining Region", i)
+			fmt.Println("Sending external block to non-mining Region", i, block.Hash())
 			blockClient.SendExternalBlock(context.Background(), block, receiptBlock.Receipts(), big.NewInt(int64(mined)))
 		}
 	}
@@ -901,7 +903,7 @@ func (m *Manager) SendClientsExtBlock(mined int, externalContexts []int, block *
 		for j, blockClient := range m.orderedBlockClients.zoneClients[i] {
 			miningZone := int(blockLocation[0])-1 == i && int(blockLocation[1])-1 == j
 			if !miningZone {
-				fmt.Println("Sending external block to non-mining Zone", i, j)
+				fmt.Println("Sending external block to non-mining Zone", i, j, block.Hash())
 				blockClient.SendExternalBlock(context.Background(), block, receiptBlock.Receipts(), big.NewInt(int64(mined)))
 			}
 		}
