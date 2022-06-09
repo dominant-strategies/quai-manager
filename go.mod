@@ -5,5 +5,5 @@ go 1.16
 require (
 	github.com/hashicorp/golang-lru v0.5.5-0.20210104140557-80c98217689d
 	github.com/spf13/viper v1.9.0
-	github.com/spruce-solutions/go-quai v0.0.0-20220525124308-d41d305b58bf
+	github.com/spruce-solutions/go-quai v0.0.0-20220609184701-e6913b2f1858
 )

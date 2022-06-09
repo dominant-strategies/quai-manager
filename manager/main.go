@@ -133,7 +133,7 @@ func main() {
 		config.Mine = mine == 1
 		fmt.Println("Manual mode started")
 	} else {
-		if config.Auto { // auto-miner
+		if config.Auto && config.Mine { // auto-miner
 			config.Location = findBestLocation(allClients)
 			config.Mine = true
 			changeLocationCycle = config.Optimize
@@ -146,7 +146,7 @@ func main() {
 				log.Fatal("Only specify 2 values for the location")
 				fmt.Println("Make sure to set config.yaml file properly")
 			}
-			fmt.Println("Manual mode started")
+			fmt.Println("Listening mode started")
 		}
 	}
 
@@ -172,11 +172,12 @@ func main() {
 		MiningThreads: 0,
 		NotifyFull:    true,
 	}
-	log.Println("Building RandomX dataset")
+
 	blake3Engine, err := blake3.New(blake3Config, nil, false)
-	if err != nil {
-		log.Fatal("Failed to create RandomX engine: ", err)
+	if nil != err {
+		log.Fatal("Failed to create Blake3 engine: ", err)
 	}
+
 	m := &Manager{
 		engine:               blake3Engine,
 		orderedBlockClients:  allClients,
@@ -194,7 +195,6 @@ func main() {
 	}
 
 	go m.subscribeNewHead()
-
 	go m.subscribeReOrg()
 
 	go m.subscribeMissingExternalBlock()
@@ -340,24 +340,23 @@ func (m *Manager) subscribePendingHeader(client *ethclient.Client, sliceIndex in
 
 // subscribeNewHead passes new head blocks as external blocks to lower level chains.
 func (m *Manager) subscribeNewHead() {
-
-	prime := "prime"
-	regions := [3]string{"region-1", "region-2", "region-3"}
-
 	// subscribe to the prime client at context 0
-	go m.subscribeNewHeadClient(m.orderedBlockClients.primeClient, prime, 0)
+	go m.subscribeNewHeadClient(m.orderedBlockClients.primeClient, 0)
 	// subscribe to the region clients
 	for i, blockClient := range m.orderedBlockClients.regionClients {
-		go m.subscribeNewHeadClient(blockClient, regions[i], 1)
+		go m.subscribeNewHeadClient(blockClient, 1)
+		for _, zoneBlockClient := range m.orderedBlockClients.zoneClients[i] {
+			go m.subscribeNewHeadClient(zoneBlockClient, 2)
+		}
 	}
 }
 
-func (m *Manager) subscribeNewHeadClient(client *ethclient.Client, location string, difficultyContext int) {
+func (m *Manager) subscribeNewHeadClient(client *ethclient.Client, difficultyContext int) {
 	newHeadChannel := make(chan *types.Header, 1)
 	retryAttempts := 5
 	sub, err := client.SubscribeNewHead(context.Background(), newHeadChannel)
 	if err != nil {
-		log.Fatal("Failed to subscribe to the reorg notifications in ", location, err)
+		log.Fatal("Failed to subscribe to the new heqad notifications ", err)
 	}
 	defer sub.Unsubscribe()
 
@@ -406,10 +405,13 @@ func (m *Manager) subscribeNewHeadClient(client *ethclient.Client, location stri
 				}
 			}
 
+			log.Println("Received new head block:", "context", difficultyContext, "location", newHead.Location, "number", newHead.Number, "hash", newHead.Hash())
 			if difficultyContext == 0 {
 				m.SendClientsExtBlock(difficultyContext, []int{1, 2}, block, receiptBlock)
 			} else if difficultyContext == 1 {
-				m.SendClientsExtBlock(difficultyContext, []int{2}, block, receiptBlock)
+				m.SendClientsExtBlock(difficultyContext, []int{0, 2}, block, receiptBlock)
+			} else if difficultyContext == 2 {
+				m.SendClientsExtBlock(difficultyContext, []int{0, 1}, block, receiptBlock)
 			}
 		}
 	}
@@ -496,15 +498,12 @@ func (m *Manager) subscribeReOrgClients(client *ethclient.Client, location strin
 	for {
 		select {
 		case reOrgData := <-reOrgData:
-			heavier := compareReorgDifficulty(reOrgData.ReOrgHeader, reOrgData.OldChainHeaders, reOrgData.NewChainHeaders, difficultyContext)
-			if heavier {
-				if len(reOrgData.OldChainHeaders) == 0 {
-					continue // might indicate an error
-				} else if len(reOrgData.OldChainHeaders) == 1 {
-					m.sendReOrgHeader(reOrgData.OldChainHeaders[0], location, difficultyContext)
-				} else {
-					m.sendReOrgHeader(reOrgData.OldChainHeaders[len(reOrgData.OldChainHeaders)-2], location, difficultyContext)
-				}
+			fmt.Println("reorgEvent", reOrgData.ReOrgHeader.Hash().Hex(), location, difficultyContext)
+
+			filteredReOrgData := m.filterReOrgData(reOrgData.OldChainHeaders)
+			for location, header := range filteredReOrgData {
+				fmt.Println("2", "oldHeader", header.Hash().Hex(), location, difficultyContext)
+				m.sendReOrgHeader(header, header.Location, difficultyContext)
 			}
 		}
 	}
@@ -568,6 +567,27 @@ func (m *Manager) subscribeMissingExternalBlockClient(client *ethclient.Client, 
 	}
 }
 
+// filterReOrgData constructs a map to store the rollback point for each region location
+func (m *Manager) filterReOrgData(headers []*types.Header) map[string]*types.Header {
+	var filteredReOrgData = map[string]*types.Header{}
+	// Reverse header list
+	for i, j := 0, len(headers)-1; i < j; i, j = i+1, j-1 {
+		headers[i], headers[j] = headers[j], headers[i]
+	}
+	for _, header := range headers {
+		_, exists := filteredReOrgData[string(header.Location)]
+		// Check if the entry already exists and if the block in the region context is earlier
+		// this ensures that we don't send in extra requests during a reorg rollback
+		fmt.Println("Exists?", exists, header.Location, header.Hash().Hex())
+		if exists {
+			continue
+		} else {
+			filteredReOrgData[string(header.Location)] = header
+		}
+	}
+	return filteredReOrgData
+}
+
 func (m *Manager) subscribeUncleClients(client *ethclient.Client, location string, difficultyContext int) {
 	uncleEvent := make(chan *types.Header)
 	sub, err := client.SubscribeChainUncleEvent(context.Background(), uncleEvent)
@@ -579,8 +599,8 @@ func (m *Manager) subscribeUncleClients(client *ethclient.Client, location strin
 	for {
 		select {
 		case uncleEvent := <-uncleEvent:
-			fmt.Println("uncleEvent", uncleEvent.Hash(), location, difficultyContext)
-			m.sendReOrgHeader(uncleEvent, location, difficultyContext)
+			fmt.Println("uncleEvent", uncleEvent.Hash(), uncleEvent.Location, location, difficultyContext)
+			m.sendReOrgHeader(uncleEvent, uncleEvent.Location, difficultyContext)
 		}
 	}
 }
@@ -600,22 +620,16 @@ func getRegionIndex(location string) int {
 }
 
 // sendReOrgHeader sends the reorg header to the respective region and zone clients
-func (m *Manager) sendReOrgHeader(header *types.Header, location string, difficultyContext int) {
-	if difficultyContext == 0 {
-		// if the reorg event takes palce in prime then have to send the header to all
-		// the chains except for prime
-		for _, blockClient := range m.orderedBlockClients.regionClients {
-			blockClient.SendReOrgData(context.Background(), header)
-		}
-		for i := range m.orderedBlockClients.zoneClients {
-			for _, blockClient := range m.orderedBlockClients.zoneClients[i] {
-				blockClient.SendReOrgData(context.Background(), header)
-			}
-		}
-	} else if difficultyContext == 1 {
-		for _, blockClient := range m.orderedBlockClients.zoneClients[getRegionIndex(location)-1] {
-			blockClient.SendReOrgData(context.Background(), header)
-		}
+func (m *Manager) sendReOrgHeader(header *types.Header, location []byte, difficultyContext int) {
+	if difficultyContext < 1 {
+		// if the reorg happens in a prime context we have to send the reorg rollback
+		// to only the affected region and its zones
+		regionClient := m.orderedBlockClients.regionClients[location[0]-1]
+		go regionClient.SendReOrgData(context.Background(), header)
+	}
+	if difficultyContext < 2 {
+		zoneClient := m.orderedBlockClients.zoneClients[location[0]-1][location[1]-1]
+		go zoneClient.SendReOrgData(context.Background(), header)
 	}
 }
 
@@ -789,7 +803,7 @@ func (m *Manager) miningLoop() error {
 
 			headerNull := m.headerNullCheck()
 			if headerNull == nil {
-				log.Println("Starting to mine block", header.Number, "@ location", m.location, "w/ difficulty", header.Difficulty[2])
+				log.Println("Starting to mine block", header.Number, "@ location", m.location, "w/ difficulty", header.Difficulty)
 				if err := m.engine.SealHeader(header, m.resultCh, stopCh); err != nil {
 					log.Println("Block sealing failed", "err", err)
 				}
@@ -861,11 +875,11 @@ func (m *Manager) resultLoop() error {
 				// go m.SendClientsMinedExtBlock(2, []int{0, 1}, header, &wg)
 				// wg.Wait()
 				wg.Add(1)
-				go m.SendMinedBlock(0, header, &wg)
+				go m.SendMinedBlock(2, header, &wg)
 				wg.Add(1)
 				go m.SendMinedBlock(1, header, &wg)
 				wg.Add(1)
-				go m.SendMinedBlock(2, header, &wg)
+				go m.SendMinedBlock(0, header, &wg)
 				wg.Wait()
 			}
 
@@ -878,9 +892,9 @@ func (m *Manager) resultLoop() error {
 				// go m.SendClientsMinedExtBlock(2, []int{0, 1}, header, &wg)
 				// wg.Wait()
 				wg.Add(1)
-				go m.SendMinedBlock(1, header, &wg)
-				wg.Add(1)
 				go m.SendMinedBlock(2, header, &wg)
+				wg.Add(1)
+				go m.SendMinedBlock(1, header, &wg)
 				wg.Wait()
 			}
 
@@ -934,20 +948,22 @@ func (m *Manager) SendClientsMinedExtBlock(mined int, externalContexts []int, he
 // ex. mined 2, externalContexts []int{0, 1} will send the Zone external block to Prime and Region.
 func (m *Manager) SendClientsExtBlock(mined int, externalContexts []int, block *types.Block, receiptBlock *types.ReceiptBlock) {
 	// first send the external block to the mining chains
+	blockLocation := block.Header().Location
+
 	for i := 0; i < len(externalContexts); i++ {
 		if externalContexts[i] == 0 && m.orderedBlockClients.primeAvailable {
 			m.orderedBlockClients.primeClient.SendExternalBlock(context.Background(), block, receiptBlock.Receipts(), big.NewInt(int64(mined)))
 		}
-		if externalContexts[i] == 1 && m.orderedBlockClients.regionsAvailable[m.location[0]-1] {
-			m.orderedBlockClients.regionClients[m.location[0]-1].SendExternalBlock(context.Background(), block, receiptBlock.Receipts(), big.NewInt(int64(mined)))
+		if externalContexts[i] == 1 && m.orderedBlockClients.regionsAvailable[blockLocation[0]-1] {
+			m.orderedBlockClients.regionClients[blockLocation[0]-1].SendExternalBlock(context.Background(), block, receiptBlock.Receipts(), big.NewInt(int64(mined)))
 		}
-		if externalContexts[i] == 2 && m.orderedBlockClients.zonesAvailable[m.location[0]-1][m.location[1]-1] {
-			m.orderedBlockClients.zoneClients[m.location[0]-1][m.location[1]-1].SendExternalBlock(context.Background(), block, receiptBlock.Receipts(), big.NewInt(int64(mined)))
+		if externalContexts[i] == 2 && m.orderedBlockClients.zonesAvailable[blockLocation[0]-1][blockLocation[1]-1] {
+			m.orderedBlockClients.zoneClients[blockLocation[0]-1][blockLocation[1]-1].SendExternalBlock(context.Background(), block, receiptBlock.Receipts(), big.NewInt(int64(mined)))
 		}
 	}
 	// sending the external blocks to chains other than the mining chains
 	for i, blockClient := range m.orderedBlockClients.regionClients {
-		miningRegion := int(m.location[0])-1 == i
+		miningRegion := int(blockLocation[0])-1 == i
 		if !miningRegion {
 			blockClient.SendExternalBlock(context.Background(), block, receiptBlock.Receipts(), big.NewInt(int64(mined)))
 		}
@@ -955,7 +971,7 @@ func (m *Manager) SendClientsExtBlock(mined int, externalContexts []int, block *
 
 	for i := range m.orderedBlockClients.zoneClients {
 		for j, blockClient := range m.orderedBlockClients.zoneClients[i] {
-			miningZone := int(m.location[0])-1 == i && int(m.location[1])-1 == j
+			miningZone := int(blockLocation[0])-1 == i && int(blockLocation[1])-1 == j
 			if !miningZone {
 				blockClient.SendExternalBlock(context.Background(), block, receiptBlock.Receipts(), big.NewInt(int64(mined)))
 			}
