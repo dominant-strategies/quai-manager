@@ -177,6 +177,7 @@ func main() {
 	if nil != err {
 		log.Fatal("Failed to create Blake3 engine: ", err)
 	}
+  
 	m := &Manager{
 		engine:               blake3Engine,
 		orderedBlockClients:  allClients,
