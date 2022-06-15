@@ -11,9 +11,7 @@ RUN apk add --no-cache gcc musl-dev linux-headers git make
 COPY . /quai-manager
  
 WORKDIR /quai-manager
-RUN go build -o ./build/bin/manager manager/main.go
-
-EXPOSE 8545 8546 8547 8548
+RUN go build -o ./build/bin/quai-manager manager/main.go
 
 # Add some metadata labels to help programatic image consumption
 ARG COMMIT=""
