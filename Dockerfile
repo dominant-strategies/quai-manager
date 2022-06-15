@@ -4,14 +4,15 @@ ARG VERSION=""
 ARG BUILDNUM=""
 
 # Build Geth in a stock Go builder container
-FROM golang:1.16-alpine as builder
+FROM golang:1.17-alpine as builder
 
-RUN apk add --no-cache gcc musl-dev linux-headers git
+RUN apk add --no-cache gcc musl-dev linux-headers git make
 
-ADD . /quai-manager
-RUN cd /quai-manager && go build -o manager manager/main.go
-
+COPY . /quai-manager
+ 
 WORKDIR /quai-manager
+RUN go build -o ./build/bin/manager manager/main.go
+
 EXPOSE 8545 8546 8547 8548
 
 # Add some metadata labels to help programatic image consumption
@@ -20,3 +21,7 @@ ARG VERSION=""
 ARG BUILDNUM=""
 
 LABEL commit="$COMMIT" version="$VERSION" buildnum="$BUILDNUM"
+
+#CMD ["./build/bin/manager", "$REGION", "$ZONE"]
+
+CMD ["tail","-f","/dev/null"]
