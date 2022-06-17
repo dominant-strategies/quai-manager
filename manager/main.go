@@ -409,9 +409,9 @@ func (m *Manager) subscribeNewHeadClient(client *ethclient.Client, difficultyCon
 			if difficultyContext == 0 {
 				m.SendClientsExtBlock(difficultyContext, []int{1, 2}, block, receiptBlock)
 			} else if difficultyContext == 1 {
-				m.SendClientsExtBlock(difficultyContext, []int{0, 2}, block, receiptBlock)
+				// m.SendClientsExtBlock(difficultyContext, []int{0, 2}, block, receiptBlock)
 			} else if difficultyContext == 2 {
-				m.SendClientsExtBlock(difficultyContext, []int{0, 1}, block, receiptBlock)
+				// m.SendClientsExtBlock(difficultyContext, []int{0, 1}, block, receiptBlock)
 			}
 		}
 	}
@@ -520,7 +520,7 @@ func (m *Manager) subscribeMissingExternalBlockClient(client *ethclient.Client, 
 	for {
 		select {
 		case missingExternalBlock := <-missingExternalBlockCh:
-			fmt.Println("Missing external Block event Block", missingExternalBlock.Hash, missingExternalBlock.Location, missingExternalBlock.Context, "requested by chain", chain)
+			log.Println("Missing external block event", missingExternalBlock.Hash, missingExternalBlock.Location, missingExternalBlock.Context, "requested by chain", chain)
 			var client *ethclient.Client
 			var cxt *big.Int
 			// prime
@@ -867,13 +867,13 @@ func (m *Manager) resultLoop() error {
 			// Notify blocks to put in cache before assembling new block on node
 			if bundle.Context == 0 && header.Number[0] != nil {
 				var wg sync.WaitGroup
-				// wg.Add(1)
-				// go m.SendClientsMinedExtBlock(0, []int{1, 2}, header, &wg)
-				// wg.Add(1)
-				// go m.SendClientsMinedExtBlock(1, []int{0, 2}, header, &wg)
-				// wg.Add(1)
-				// go m.SendClientsMinedExtBlock(2, []int{0, 1}, header, &wg)
-				// wg.Wait()
+				wg.Add(1)
+				go m.SendClientsMinedExtBlock(0, []int{1, 2}, header, &wg)
+				wg.Add(1)
+				go m.SendClientsMinedExtBlock(1, []int{0, 2}, header, &wg)
+				wg.Add(1)
+				go m.SendClientsMinedExtBlock(2, []int{0, 1}, header, &wg)
+				wg.Wait()
 				wg.Add(1)
 				go m.SendMinedBlock(2, header, &wg)
 				wg.Add(1)
@@ -886,11 +886,11 @@ func (m *Manager) resultLoop() error {
 			// If Region difficulty send to Region
 			if bundle.Context == 1 && header.Number[1] != nil {
 				var wg sync.WaitGroup
-				// wg.Add(1)
-				// go m.SendClientsMinedExtBlock(1, []int{0, 2}, header, &wg)
-				// wg.Add(1)
-				// go m.SendClientsMinedExtBlock(2, []int{0, 1}, header, &wg)
-				// wg.Wait()
+				wg.Add(1)
+				go m.SendClientsMinedExtBlock(1, []int{0, 2}, header, &wg)
+				wg.Add(1)
+				go m.SendClientsMinedExtBlock(2, []int{0, 1}, header, &wg)
+				wg.Wait()
 				wg.Add(1)
 				go m.SendMinedBlock(2, header, &wg)
 				wg.Add(1)
@@ -901,9 +901,9 @@ func (m *Manager) resultLoop() error {
 			// If Zone difficulty send to Zone
 			if bundle.Context == 2 && header.Number[2] != nil {
 				var wg sync.WaitGroup
-				// wg.Add(1)
-				// go m.SendClientsMinedExtBlock(2, []int{0, 1}, header, &wg)
-				// wg.Wait()
+				wg.Add(1)
+				go m.SendClientsMinedExtBlock(2, []int{0, 1}, header, &wg)
+				wg.Wait()
 				wg.Add(1)
 				go m.SendMinedBlock(2, header, &wg)
 				wg.Wait()
