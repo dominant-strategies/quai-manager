@@ -177,7 +177,7 @@ func main() {
 	if nil != err {
 		log.Fatal("Failed to create Blake3 engine: ", err)
 	}
-  
+
 	m := &Manager{
 		engine:               blake3Engine,
 		orderedBlockClients:  allClients,
@@ -196,6 +196,8 @@ func main() {
 
 	go m.subscribeNewHead()
 	go m.subscribeReOrg()
+
+	go m.subscribeMissingExternalBlock()
 
 	if config.Mine {
 		log.Println("Starting manager in location ", config.Location)
@@ -407,9 +409,9 @@ func (m *Manager) subscribeNewHeadClient(client *ethclient.Client, difficultyCon
 			if difficultyContext == 0 {
 				m.SendClientsExtBlock(difficultyContext, []int{1, 2}, block, receiptBlock)
 			} else if difficultyContext == 1 {
-				m.SendClientsExtBlock(difficultyContext, []int{0, 2}, block, receiptBlock)
+				// m.SendClientsExtBlock(difficultyContext, []int{0, 2}, block, receiptBlock)
 			} else if difficultyContext == 2 {
-				m.SendClientsExtBlock(difficultyContext, []int{0, 1}, block, receiptBlock)
+				// m.SendClientsExtBlock(difficultyContext, []int{0, 1}, block, receiptBlock)
 			}
 		}
 	}
@@ -430,6 +432,21 @@ func (m *Manager) subscribeReOrg() {
 	for i, client := range m.orderedBlockClients.regionClients {
 		go m.subscribeReOrgClients(client, regions[i], 1)
 		go m.subscribeUncleClients(client, regions[i], 1)
+	}
+}
+
+func (m *Manager) subscribeMissingExternalBlock() {
+	// prime client
+	go m.subscribeMissingExternalBlockClient(m.orderedBlockClients.primeClient, []byte{0, 0})
+	// region clients
+	for i, regionClient := range m.orderedBlockClients.regionClients {
+		go m.subscribeMissingExternalBlockClient(regionClient, []byte{uint8(i + 1), 0})
+	}
+	// zone clients
+	for i, zoneClients := range m.orderedBlockClients.zoneClients {
+		for j, zoneClient := range zoneClients {
+			go m.subscribeMissingExternalBlockClient(zoneClient, []byte{uint8(i + 1), uint8(j + 1)})
+		}
 	}
 }
 
@@ -487,6 +504,64 @@ func (m *Manager) subscribeReOrgClients(client *ethclient.Client, location strin
 			for location, header := range filteredReOrgData {
 				fmt.Println("2", "oldHeader", header.Hash().Hex(), location, difficultyContext)
 				m.sendReOrgHeader(header, header.Location, difficultyContext)
+			}
+		}
+	}
+}
+
+func (m *Manager) subscribeMissingExternalBlockClient(client *ethclient.Client, chain []byte) {
+	missingExternalBlockCh := make(chan core.MissingExternalBlock)
+	sub, err := client.SubscribeMissingExternalBlock(context.Background(), missingExternalBlockCh)
+	if err != nil {
+		log.Fatal("Failed to subscribe to missing external block notifications", err)
+	}
+	defer sub.Unsubscribe()
+
+	for {
+		select {
+		case missingExternalBlock := <-missingExternalBlockCh:
+			log.Println("Missing external block event", missingExternalBlock.Hash, missingExternalBlock.Location, missingExternalBlock.Context, "requested by chain", chain)
+			var client *ethclient.Client
+			var cxt *big.Int
+			// prime
+			if missingExternalBlock.Context == 0 {
+				client = m.orderedBlockClients.primeClient
+				cxt = big.NewInt(0)
+			}
+			// regions
+			if missingExternalBlock.Context == 1 {
+				client = m.orderedBlockClients.regionClients[int(missingExternalBlock.Location[0])-1]
+				cxt = big.NewInt(1)
+			}
+			// zones
+			if missingExternalBlock.Context == 2 {
+				client = m.orderedBlockClients.zoneClients[int(missingExternalBlock.Location[0])-1][int(missingExternalBlock.Location[1])-1]
+				cxt = big.NewInt(2)
+			}
+			block, err := client.BlockByHash(context.Background(), missingExternalBlock.Hash)
+			if err != nil {
+				log.Println("Failed to get block from chain in ", chain, err)
+				continue
+			}
+			receipts, err := client.GetBlockReceipts(context.Background(), missingExternalBlock.Hash)
+			if err != nil {
+				log.Println("Failed to get block receipts from chain in ", missingExternalBlock.Location, err)
+				continue
+			}
+
+			// sending the external Block back to the client
+			var extClient *ethclient.Client
+			if int(chain[0]) == 0 && int(chain[1]) == 0 {
+				extClient = m.orderedBlockClients.primeClient
+			} else if int(chain[0]) != 0 && int(chain[1]) == 0 {
+				extClient = m.orderedBlockClients.regionClients[chain[0]-1]
+			} else {
+				extClient = m.orderedBlockClients.zoneClients[chain[0]-1][chain[1]-1]
+			}
+
+			if err := extClient.SendExternalBlock(context.Background(), block, receipts.Receipts(), cxt); err != nil {
+				log.Println("Failed to send external block to chain in ", missingExternalBlock.Location, err)
+				continue
 			}
 		}
 	}
