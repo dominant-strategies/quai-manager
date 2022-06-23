@@ -501,9 +501,8 @@ func (m *Manager) subscribeReOrgClients(client *ethclient.Client, location strin
 			fmt.Println("reorgEvent", reOrgData.ReOrgHeader.Hash().Hex(), location, difficultyContext)
 
 			filteredReOrgData := m.filterReOrgData(reOrgData.OldChainHeaders)
-			for location, header := range filteredReOrgData {
-				fmt.Println("2", "oldHeader", header.Hash().Hex(), location, difficultyContext)
-				m.sendReOrgHeader(header, header.Location, difficultyContext)
+			for _, header := range filteredReOrgData {
+				m.sendReOrgHeader(header, header.Location, difficultyContext, reOrgData)
 			}
 		}
 	}
@@ -578,7 +577,6 @@ func (m *Manager) filterReOrgData(headers []*types.Header) map[string]*types.Hea
 		_, exists := filteredReOrgData[string(header.Location)]
 		// Check if the entry already exists and if the block in the region context is earlier
 		// this ensures that we don't send in extra requests during a reorg rollback
-		fmt.Println("Exists?", exists, header.Location, header.Hash().Hex())
 		if exists {
 			continue
 		} else {
@@ -600,7 +598,7 @@ func (m *Manager) subscribeUncleClients(client *ethclient.Client, location strin
 		select {
 		case uncleEvent := <-uncleEvent:
 			fmt.Println("uncleEvent", uncleEvent.Hash(), uncleEvent.Location, location, difficultyContext)
-			m.sendReOrgHeader(uncleEvent, uncleEvent.Location, difficultyContext)
+			m.sendReOrgHeader(uncleEvent, uncleEvent.Location, difficultyContext, core.ReOrgRollup{OldChainHeaders: []*types.Header{uncleEvent}})
 		}
 	}
 }
@@ -620,16 +618,16 @@ func getRegionIndex(location string) int {
 }
 
 // sendReOrgHeader sends the reorg header to the respective region and zone clients
-func (m *Manager) sendReOrgHeader(header *types.Header, location []byte, difficultyContext int) {
+func (m *Manager) sendReOrgHeader(header *types.Header, location []byte, difficultyContext int, reorgData core.ReOrgRollup) {
 	if difficultyContext < 1 {
 		// if the reorg happens in a prime context we have to send the reorg rollback
 		// to only the affected region and its zones
 		regionClient := m.orderedBlockClients.regionClients[location[0]-1]
-		go regionClient.SendReOrgData(context.Background(), header)
+		go regionClient.SendReOrgData(context.Background(), header, reorgData.NewChainHeaders, reorgData.OldChainHeaders)
 	}
 	if difficultyContext < 2 {
 		zoneClient := m.orderedBlockClients.zoneClients[location[0]-1][location[1]-1]
-		go zoneClient.SendReOrgData(context.Background(), header)
+		go zoneClient.SendReOrgData(context.Background(), header, reorgData.NewChainHeaders, reorgData.OldChainHeaders)
 	}
 }
 
