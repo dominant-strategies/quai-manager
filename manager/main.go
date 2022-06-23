@@ -356,7 +356,7 @@ func (m *Manager) subscribeNewHeadClient(client *ethclient.Client, difficultyCon
 	retryAttempts := 5
 	sub, err := client.SubscribeNewHead(context.Background(), newHeadChannel)
 	if err != nil {
-		log.Fatal("Failed to subscribe to the new heqad notifications ", err)
+		log.Fatal("Failed to subscribe to the new head notifications ", err)
 	}
 	defer sub.Unsubscribe()
 
@@ -409,9 +409,9 @@ func (m *Manager) subscribeNewHeadClient(client *ethclient.Client, difficultyCon
 			if difficultyContext == 0 {
 				m.SendClientsExtBlock(difficultyContext, []int{1, 2}, block, receiptBlock)
 			} else if difficultyContext == 1 {
-				// m.SendClientsExtBlock(difficultyContext, []int{0, 2}, block, receiptBlock)
+				m.SendClientsExtBlock(difficultyContext, []int{0, 2}, block, receiptBlock)
 			} else if difficultyContext == 2 {
-				// m.SendClientsExtBlock(difficultyContext, []int{0, 1}, block, receiptBlock)
+				m.SendClientsExtBlock(difficultyContext, []int{0, 1}, block, receiptBlock)
 			}
 		}
 	}
