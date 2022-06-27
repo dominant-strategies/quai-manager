@@ -947,6 +947,9 @@ func (m *Manager) SendClientsMinedExtBlock(mined int, externalContexts []int, he
 func (m *Manager) SendClientsExtBlock(mined int, externalContexts []int, block *types.Block, receiptBlock *types.ReceiptBlock) {
 	// first send the external block to the mining chains
 	blockLocation := block.Header().Location
+	if blockLocation == nil {
+		return
+	}
 
 	for i := 0; i < len(externalContexts); i++ {
 		if externalContexts[i] == 0 && m.orderedBlockClients.primeAvailable {
