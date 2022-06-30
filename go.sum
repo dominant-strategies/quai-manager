@@ -500,6 +500,8 @@ github.com/spruce-solutions/go-quai v0.0.0-20220609184701-e6913b2f1858 h1:CnRc8B
 github.com/spruce-solutions/go-quai v0.0.0-20220609184701-e6913b2f1858/go.mod h1:xlk1K+ffzbfGwPOKtbPI/Bm4hHk03HOHTXUC9U1kr/8=
 github.com/spruce-solutions/go-quai v0.0.0-20220623232700-6687cd2d2b62 h1:1GBykFf42LsfJLqcf0TLg/JapqDicLth/eXlWraogXc=
 github.com/spruce-solutions/go-quai v0.0.0-20220623232700-6687cd2d2b62/go.mod h1:xlk1K+ffzbfGwPOKtbPI/Bm4hHk03HOHTXUC9U1kr/8=
+github.com/spruce-solutions/go-quai v0.1.0-pre.1.0.20220630231352-5e7306b1a0bc h1:llBhmUUr5SlqXyJidgrPfPr6tcV7sMazQM5zlrAGT+k=
+github.com/spruce-solutions/go-quai v0.1.0-pre.1.0.20220630231352-5e7306b1a0bc/go.mod h1:xlk1K+ffzbfGwPOKtbPI/Bm4hHk03HOHTXUC9U1kr/8=
 github.com/spruce-solutions/go-quai v0.1.0-pre.2 h1:QYJEBrj1xqLWcQPyNaCWiHhxUitDOnisLleWPzYAyJ0=
 github.com/spruce-solutions/go-quai v0.1.0-pre.2/go.mod h1:xlk1K+ffzbfGwPOKtbPI/Bm4hHk03HOHTXUC9U1kr/8=
 github.com/status-im/keycard-go v0.0.0-20190316090335-8537d3370df4 h1:Gb2Tyox57NRNuZ2d3rmvB3pcmbu7O1RS3m8WRx7ilrg=
