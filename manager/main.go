@@ -394,13 +394,13 @@ func (m *Manager) subscribeNewHeadClient(client *ethclient.Client, difficultyCon
 			// get the block and receipt block
 			block, err := client.BlockByHash(context.Background(), newHead.Hash())
 			if err != nil {
-				log.Println("Failed to retrieve block for new head", "hash ", newHead.Hash())
+				log.Println("Failed to retrieve block for new head", "hash ", newHead.Hash(), "err", err)
 				continue
 			}
 
 			receiptBlock, receiptErr := client.GetBlockReceipts(context.Background(), newHead.Hash())
 			if receiptErr != nil {
-				log.Println("Failed to retrieve receipts for new head", "hash", newHead.Hash())
+				log.Println("Failed to retrieve receipts for new head", "hash", newHead.Hash(), "err", receiptErr)
 				continue
 			}
 
