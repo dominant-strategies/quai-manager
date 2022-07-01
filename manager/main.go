@@ -409,6 +409,9 @@ func (m *Manager) subscribeNewHeadClient(client *ethclient.Client, difficultyCon
 			if difficultyContext == 0 {
 				// get the externalBlock for region and zone
 				regionExternalBlock, _ := m.orderedBlockClients.primeClient.GetExternalBlockTraceSet(context.Background(), block.Header().Hash(), 1)
+				if regionExternalBlock == nil {
+					break
+				}
 				regionBlock := types.NewBlockWithHeader(regionExternalBlock.Header()).WithBody(regionExternalBlock.Transactions(), regionExternalBlock.Uncles())
 
 				// seal the region block
@@ -417,7 +420,9 @@ func (m *Manager) subscribeNewHeadClient(client *ethclient.Client, difficultyCon
 
 				zoneExternalBlock, _ := m.orderedBlockClients.primeClient.GetExternalBlockTraceSet(context.Background(), block.Header().Hash(), 2)
 				zoneBlock := types.NewBlockWithHeader(zoneExternalBlock.Header()).WithBody(zoneExternalBlock.Transactions(), zoneExternalBlock.Uncles())
-
+				if zoneExternalBlock == nil {
+					break
+				}
 				// seal the zone block
 				sealed = zoneBlock.WithSeal(zoneBlock.Header())
 				m.orderedBlockClients.zoneClients[int(zoneBlock.Header().Location[0])-1][int(zoneBlock.Header().Location[1])-1].SendMinedBlock(context.Background(), sealed, true, true)
@@ -425,6 +430,9 @@ func (m *Manager) subscribeNewHeadClient(client *ethclient.Client, difficultyCon
 				m.SendClientsExtBlock(difficultyContext, []int{1, 2}, block, receiptBlock)
 			} else if difficultyContext == 1 {
 				zoneExternalBlock, _ := m.orderedBlockClients.regionClients[int(block.Header().Location[0])-1].GetExternalBlockTraceSet(context.Background(), block.Header().Hash(), 2)
+				if zoneExternalBlock == nil {
+					break
+				}
 				zoneBlock := types.NewBlockWithHeader(zoneExternalBlock.Header()).WithBody(zoneExternalBlock.Transactions(), zoneExternalBlock.Uncles())
 
 				// seal the zone block
