@@ -1,7 +1,7 @@
 # Config for node URLs
 Location: [1,2]
 Auto: false
-Mine: true
+Mine: false
 Optimize: false
 OptimizeTimer: 10
 PrimeURL: "ws://127.0.0.1:8547"
