@@ -405,7 +405,6 @@ func (m *Manager) subscribeNewHeadClient(client *ethclient.Client, difficultyCon
 				}
 			}
 
-			log.Println("Received new head block:", "context", difficultyContext, "location", newHead.Location, "number", newHead.Number, "hash", newHead.Hash())
 			if difficultyContext == 0 {
 				// get the externalBlock for region and zone
 				regionExternalBlock, _ := m.orderedBlockClients.primeClient.GetExternalBlockTraceSet(context.Background(), block.Header().Hash(), 1)
@@ -549,7 +548,6 @@ func (m *Manager) subscribeMissingExternalBlockClient(client *ethclient.Client, 
 	for {
 		select {
 		case missingExternalBlock := <-missingExternalBlockCh:
-			log.Println("Missing external block event", missingExternalBlock.Hash, missingExternalBlock.Location, missingExternalBlock.Context, "requested by chain", chain)
 			var client *ethclient.Client
 			var cxt *big.Int
 			// prime
@@ -597,6 +595,7 @@ func (m *Manager) subscribeMissingExternalBlockClient(client *ethclient.Client, 
 						receipts = externalBlock.Body().Receipts
 					} else {
 						log.Println("Unable to fetch the external block from the chain and even not able to reconstruct the block from the external blocks in dominant chains")
+						continue
 					}
 				}
 			}
