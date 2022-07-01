@@ -586,14 +586,13 @@ func (m *Manager) subscribeMissingExternalBlockClient(client *ethclient.Client, 
 					receipts = externalBlock.Body().Receipts
 				} else {
 					// check the corresponding region chain to see if the external block for the given context exists
-					externalBlock, _ = m.orderedBlockClients.regionClients[int(missingExternalBlock.Location[0])-1].GetExternalBlockTraceSet(context.Background(), missingExternalBlock.Hash, missingExternalBlock.Context)
-
+					externalBlock, err = m.orderedBlockClients.regionClients[int(missingExternalBlock.Location[0])-1].GetExternalBlockTraceSet(context.Background(), missingExternalBlock.Hash, missingExternalBlock.Context)
 					// if we find the external block in the region we stop or there is currently no way to get the missing external block
 					if externalBlock != nil {
 						block = types.NewBlockWithHeader(externalBlock.Header()).WithBody(externalBlock.Transactions(), externalBlock.Uncles())
 						receipts = externalBlock.Body().Receipts
 					} else {
-						log.Println("Unable to fetch external block", missingExternalBlock.Location, missingExternalBlock.Context, missingExternalBlock.Location)
+						log.Println("Error getting external block", "location", missingExternalBlock.Location, "context", missingExternalBlock.Context, "hash", missingExternalBlock.Hash, "err", err)
 						continue
 					}
 				}
@@ -648,7 +647,7 @@ func (m *Manager) subscribeUncleClients(client *ethclient.Client, location strin
 	for {
 		select {
 		case uncleEvent := <-uncleEvent:
-			fmt.Println("uncleEvent", uncleEvent.Hash(), uncleEvent.Location, location, difficultyContext)
+			log.Println("Uncle Event:", "hash", uncleEvent.Hash(), "uncle location", uncleEvent.Location, "context", difficultyContext)
 			m.sendReOrgHeader(uncleEvent, uncleEvent.Location, difficultyContext, core.ReOrgRollup{OldChainHeaders: []*types.Header{uncleEvent}})
 		}
 	}
