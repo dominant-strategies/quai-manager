@@ -566,7 +566,7 @@ func (m *Manager) subscribeMissingExternalBlockClient(client *ethclient.Client, 
 						block = types.NewBlockWithHeader(externalBlock.Header()).WithBody(externalBlock.Transactions(), externalBlock.Uncles())
 						receipts = externalBlock.Body().Receipts
 					} else {
-						log.Println("Unable to fetch the external block from the chain and even not able to reconstruct the block from the external blocks in dominant chains")
+						log.Println("Unable to fetch external block", missingExternalBlock.Location, missingExternalBlock.Context, missingExternalBlock.Location)
 						continue
 					}
 				}
