@@ -65,33 +65,61 @@ type orderedBlockClients struct {
 	zonesAvailable   [][]bool
 }
 
+var exponentialBackoffCeilingSecs int64 = 14400 // 4 hours
+
 func main() {
 	config, err := util.LoadConfig("..")
 	if err != nil {
 		log.Fatal("cannot load config:", err)
 	}
 
+	lastUpdatedAt := time.Now()
+	attempts := 0
+
+	// errror handling in case any connections failed
+	connectStatus := false
 	// Get URLs for all chains and set mining bools to represent if online
 	// getting clients comes first because manager can poll chains for auto-mine
 	allClients := getNodeClients(config)
 
-	// errror handling in case any connections failed
-	connectStatus := true
-	if !allClients.primeAvailable {
-		connectStatus = false
-	}
-	for _, status := range allClients.regionsAvailable {
-		if !status {
+	for !connectStatus {
+		if time.Now().Sub(lastUpdatedAt).Hours() >= 12 {
+			attempts = 0
+		}
+
+		connectStatus = true
+		if !allClients.primeAvailable {
 			connectStatus = false
 		}
-	}
-	for _, zonesArray := range allClients.zonesAvailable {
-		for _, status := range zonesArray {
+		for _, status := range allClients.regionsAvailable {
 			if !status {
 				connectStatus = false
 			}
 		}
+		for _, zonesArray := range allClients.zonesAvailable {
+			for _, status := range zonesArray {
+				if !status {
+					connectStatus = false
+				}
+			}
+		}
+		lastUpdatedAt = time.Now()
+		attempts += 1
+
+		// exponential back-off implemented
+		delaySecs := int64(math.Floor((math.Pow(2, float64(attempts)) - 1) * 0.5))
+		if delaySecs > exponentialBackoffCeilingSecs {
+			delaySecs = exponentialBackoffCeilingSecs
+		}
+
+		// should only get here if the ffmpeg record stream process dies
+		fmt.Printf("This is attempt %d to connect to all go-quai nodes. Waiting %d seconds and then retrying...\n", attempts, delaySecs)
+
+		time.Sleep(time.Duration(delaySecs) * time.Second)
+
+		allClients = getNodeClients(config)
 	}
+
 	if !connectStatus {
 		log.Println("Some or all connections to chains not available")
 		log.Println("For best performance check your connections and restart the manager")
@@ -246,7 +274,7 @@ func getNodeClients(config util.Config) orderedBlockClients {
 	if config.PrimeURL != "" {
 		primeClient, err := ethclient.Dial(config.PrimeURL)
 		if err != nil {
-			log.Println("Error connecting to Prime mining node ", config.PrimeURL)
+			log.Println("Unable to connect to node:", "Prime", config.PrimeURL)
 		} else {
 			allClients.primeClient = primeClient
 			allClients.primeAvailable = true
@@ -255,12 +283,11 @@ func getNodeClients(config util.Config) orderedBlockClients {
 
 	// loop to add Regions to orderedBlockClient
 	// remember to set true value for Region to be mined
-	for i, URL := range config.RegionURLs {
-		regionURL := URL
+	for i, regionURL := range config.RegionURLs {
 		if regionURL != "" {
 			regionClient, err := ethclient.Dial(regionURL)
 			if err != nil {
-				log.Println("Error connecting to Region mining node ", URL, " in location ", i)
+				log.Println("Unable to connect to node:", "Region", i+1, regionURL)
 				allClients.regionsAvailable[i] = false
 			} else {
 				allClients.regionsAvailable[i] = true
@@ -276,7 +303,7 @@ func getNodeClients(config util.Config) orderedBlockClients {
 			if zoneURL != "" {
 				zoneClient, err := ethclient.Dial(zoneURL)
 				if err != nil {
-					log.Println("Error connecting to Zone mining node ", zoneURL, " in location ", i, " ", j)
+					log.Println("Unable to connect to node:", "Zone", i+1, j+1, zoneURL)
 					allClients.zonesAvailable[i][j] = false
 				} else {
 					allClients.zonesAvailable[i][j] = true
@@ -356,7 +383,7 @@ func (m *Manager) subscribeNewHeadClient(client *ethclient.Client, difficultyCon
 	retryAttempts := 5
 	sub, err := client.SubscribeNewHead(context.Background(), newHeadChannel)
 	if err != nil {
-		log.Fatal("Failed to subscribe to the new head notifications ", err)
+		log.Println("Failed to subscribe to the new head notifications ", err)
 	}
 	defer sub.Unsubscribe()
 
