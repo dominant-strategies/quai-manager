@@ -353,7 +353,6 @@ func (m *Manager) subscribeNewHead() {
 
 func (m *Manager) subscribeNewHeadClient(client *ethclient.Client, difficultyContext int) {
 	newHeadChannel := make(chan *types.Header, 1)
-	retryAttempts := 5
 	sub, err := client.SubscribeNewHead(context.Background(), newHeadChannel)
 	if err != nil {
 		log.Fatal("Failed to subscribe to the new head notifications ", err)
@@ -363,46 +362,19 @@ func (m *Manager) subscribeNewHeadClient(client *ethclient.Client, difficultyCon
 	for {
 		select {
 		case newHead := <-newHeadChannel:
+			log.Println("Received new head block:", "context", difficultyContext, "location", newHead.Location, "number", newHead.Number, "hash", newHead.Hash())
+
 			// get the block and receipt block
 			block, err := client.BlockByHash(context.Background(), newHead.Hash())
 			if err != nil {
-				log.Println("Failed to retrieve block for hash", "hash ", newHead.Hash())
-
-				for i := 0; ; i++ {
-					block, err = client.BlockByHash(context.Background(), newHead.Hash())
-					if err == nil {
-						break
-					}
-
-					if i >= retryAttempts {
-						log.Println("Failed to retrieve block for hash ", "hash ", newHead.Hash(), " even after ", retryAttempts, " retry attempts ")
-						return
-					}
-
-					time.Sleep(12 * time.Second)
-
-					log.Println("Retry attempt:", i+1, "Failed to retrieve block for hash ", "hash", newHead.Hash())
-				}
+				log.Println("Failed to retrieve block for new head", "hash ", newHead.Hash())
+				continue
 			}
 
 			receiptBlock, receiptErr := client.GetBlockReceipts(context.Background(), newHead.Hash())
 			if receiptErr != nil {
-				log.Println("Failed to retrieve receipts for block", "hash", newHead.Hash())
-
-				for i := 0; ; i++ {
-					receiptBlock, receiptErr = client.GetBlockReceipts(context.Background(), newHead.Hash())
-					if receiptErr == nil {
-						break
-					}
-
-					if i >= retryAttempts {
-						log.Fatal("Failed to retrieve receipts for block", "hash", newHead.Hash(), " even after ", retryAttempts, " retry attempts ")
-					}
-
-					time.Sleep(12 * time.Second)
-
-					log.Println("Retry attempt:", i+1, "Failed to retrieve receipts for block", "hash", newHead.Hash())
-				}
+				log.Println("Failed to retrieve receipts for new head", "hash", newHead.Hash())
+				continue
 			}
 
 			if difficultyContext == 0 {
