@@ -389,7 +389,7 @@ func (m *Manager) subscribeNewHeadClient(client *ethclient.Client, difficultyCon
 	for {
 		select {
 		case newHead := <-newHeadChannel:
-			log.Println("Received new head block:", "context", difficultyContext, "location", newHead.Location, "number", newHead.Number, "hash", newHead.Hash())
+			log.Println("New Head Event:", "location", newHead.Location, "context", difficultyContext, "number", newHead.Number, "hash", newHead.Hash())
 
 			// get the block and receipt block
 			block, err := client.BlockByHash(context.Background(), newHead.Hash())
@@ -403,11 +403,15 @@ func (m *Manager) subscribeNewHeadClient(client *ethclient.Client, difficultyCon
 				log.Println("Failed to retrieve receipts for new head", "hash", newHead.Hash(), "err", receiptErr)
 				continue
 			}
+			if block.Header().Location == nil || len(block.Header().Location) == 0 {
+				continue
+			}
 
 			if difficultyContext == 0 {
 				// get the externalBlock for region and zone
-				regionExternalBlock, _ := m.orderedBlockClients.primeClient.GetExternalBlockTraceSet(context.Background(), block.Header().Hash(), 1)
+				regionExternalBlock, err := m.orderedBlockClients.primeClient.GetExternalBlockTraceSet(context.Background(), block.Header().Hash(), 1)
 				if regionExternalBlock == nil {
+					log.Println("regionExternalBlock is nil for difficulty context 0", "hash", newHead.Hash(), "err", err)
 					break
 				}
 				regionBlock := types.NewBlockWithHeader(regionExternalBlock.Header()).WithBody(regionExternalBlock.Transactions(), regionExternalBlock.Uncles())
@@ -416,19 +420,21 @@ func (m *Manager) subscribeNewHeadClient(client *ethclient.Client, difficultyCon
 				sealed := regionBlock.WithSeal(regionBlock.Header())
 				m.orderedBlockClients.regionClients[int(regionBlock.Header().Location[0])-1].SendMinedBlock(context.Background(), sealed, true, true)
 
-				zoneExternalBlock, _ := m.orderedBlockClients.primeClient.GetExternalBlockTraceSet(context.Background(), block.Header().Hash(), 2)
-				zoneBlock := types.NewBlockWithHeader(zoneExternalBlock.Header()).WithBody(zoneExternalBlock.Transactions(), zoneExternalBlock.Uncles())
+				zoneExternalBlock, err := m.orderedBlockClients.primeClient.GetExternalBlockTraceSet(context.Background(), block.Header().Hash(), 2)
 				if zoneExternalBlock == nil {
+					log.Println("zoneExternalBlock is nil for difficulty context 0", "hash", newHead.Hash(), "err", err)
 					break
 				}
+				zoneBlock := types.NewBlockWithHeader(zoneExternalBlock.Header()).WithBody(zoneExternalBlock.Transactions(), zoneExternalBlock.Uncles())
 				// seal the zone block
 				sealed = zoneBlock.WithSeal(zoneBlock.Header())
 				m.orderedBlockClients.zoneClients[int(zoneBlock.Header().Location[0])-1][int(zoneBlock.Header().Location[1])-1].SendMinedBlock(context.Background(), sealed, true, true)
 
 				m.SendClientsExtBlock(difficultyContext, []int{1, 2}, block, receiptBlock)
 			} else if difficultyContext == 1 {
-				zoneExternalBlock, _ := m.orderedBlockClients.regionClients[int(block.Header().Location[0])-1].GetExternalBlockTraceSet(context.Background(), block.Header().Hash(), 2)
+				zoneExternalBlock, err := m.orderedBlockClients.regionClients[int(block.Header().Location[0])-1].GetExternalBlockTraceSet(context.Background(), block.Header().Hash(), 2)
 				if zoneExternalBlock == nil {
+					log.Println("zoneExternalBlock is nil for difficulty context 1", "hash", newHead.Hash(), "err", err)
 					break
 				}
 				zoneBlock := types.NewBlockWithHeader(zoneExternalBlock.Header()).WithBody(zoneExternalBlock.Transactions(), zoneExternalBlock.Uncles())
@@ -526,7 +532,7 @@ func (m *Manager) subscribeReOrgClients(client *ethclient.Client, location strin
 	for {
 		select {
 		case reOrgData := <-reOrgData:
-			fmt.Println("reorgEvent", reOrgData.ReOrgHeader.Hash().Hex(), location, difficultyContext)
+			log.Println("Reorg Event:", "location", location, "context", difficultyContext, "number", reOrgData.ReOrgHeader.Number, "hash", reOrgData.ReOrgHeader.Hash().Hex())
 
 			filteredReOrgData := m.filterReOrgData(reOrgData.OldChainHeaders)
 			for _, header := range filteredReOrgData {
@@ -647,7 +653,7 @@ func (m *Manager) subscribeUncleClients(client *ethclient.Client, location strin
 	for {
 		select {
 		case uncleEvent := <-uncleEvent:
-			log.Println("Uncle Event:", "hash", uncleEvent.Hash(), "uncle location", uncleEvent.Location, "context", difficultyContext)
+			log.Println("Uncle Event:", "location", uncleEvent.Location, "context", difficultyContext, "number", uncleEvent.Number, "hash", uncleEvent.Hash())
 			m.sendReOrgHeader(uncleEvent, uncleEvent.Location, difficultyContext, core.ReOrgRollup{OldChainHeaders: []*types.Header{uncleEvent}})
 		}
 	}
@@ -851,7 +857,7 @@ func (m *Manager) miningLoop() error {
 
 			headerNull := m.headerNullCheck()
 			if headerNull == nil {
-				log.Println("Starting to mine block", header.Number, "@ location", m.location, "w/ difficulty", header.Difficulty)
+				log.Println("Starting to mine:  ", header.Number, "location", m.location, "difficulty", header.Difficulty)
 				if err := m.engine.SealHeader(header, m.resultCh, stopCh); err != nil {
 					log.Println("Block sealing failed", "err", err)
 				}
@@ -894,15 +900,15 @@ func (m *Manager) resultLoop() error {
 			header := bundle.Header
 
 			if bundle.Context == 0 {
-				log.Println("PRIME: ", header.Number, header.Hash())
+				log.Println("PRIME block mined: ", header.Number, header.Hash())
 			}
 
 			if bundle.Context == 1 {
-				log.Println("REGION:", header.Number, header.Hash())
+				log.Println("REGION block mined:", header.Number, header.Hash())
 			}
 
 			if bundle.Context == 2 {
-				log.Println("ZONE:  ", header.Number, header.Hash())
+				log.Println("ZONE block mined:  ", header.Number, header.Hash())
 			}
 
 			// Check to see that all nodes are running before sending blocks to them.
