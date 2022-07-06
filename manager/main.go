@@ -534,6 +534,35 @@ func (m *Manager) subscribeReOrgClients(client *ethclient.Client, location strin
 		case reOrgData := <-reOrgData:
 			log.Println("Reorg Event:", "location", location, "context", difficultyContext, "number", reOrgData.ReOrgHeader.Number, "hash", reOrgData.ReOrgHeader.Hash().Hex())
 
+			// check if we get the newSubs in the reOrgData
+			if reOrgData.NewSubs != nil {
+
+				newSubs := reOrgData.NewSubs
+				// invert the array of newSubs block
+				for i, j := 0, len(newSubs)-1; i < j; i, j = i+1, j-1 {
+					newSubs[i], newSubs[j] = newSubs[j], newSubs[i]
+				}
+
+				var domClient *ethclient.Client
+				if difficultyContext == 0 {
+					// If the rollback event got triggered in the prime we send the newSubs for addition to the region
+					domClient = m.orderedBlockClients.regionClients[int(location[0])-1]
+				} else if difficultyContext == 1 {
+					// If the rollback event got triggered in the region we send the newSubs for addition to the zone
+					domClient = m.orderedBlockClients.zoneClients[int(location[0])-1][int(location[1])-1]
+				} else {
+					log.Println("Reorg Event: difficulty context used for the reorg subscription is not 0 or 1 but is ", difficultyContext)
+				}
+
+				for _, extBlock := range newSubs {
+					// extract the block to the
+					block := types.NewBlockWithHeader(extBlock.Header()).WithBody(extBlock.Transactions(), extBlock.Uncles())
+					fmt.Println("Sending new sub", block.Header().Number, block.Hash())
+					// Send the external blocks as mined blocks
+					domClient.SendMinedBlock(context.Background(), block.WithSeal(block.Header()), true, true)
+				}
+			}
+
 			filteredReOrgData := m.filterReOrgData(reOrgData.OldChainHeaders)
 			for _, header := range filteredReOrgData {
 				m.sendReOrgHeader(header, header.Location, difficultyContext, reOrgData)
