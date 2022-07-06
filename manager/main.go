@@ -409,7 +409,7 @@ func (m *Manager) subscribeNewHeadClient(client *ethclient.Client, difficultyCon
 
 			if difficultyContext == 0 {
 				// get the externalBlock for region and zone
-				regionExternalBlock, err := m.orderedBlockClients.primeClient.GetExternalBlockTraceSet(context.Background(), block.Header().Hash(), 1)
+				regionExternalBlock, err := m.orderedBlockClients.primeClient.GetExternalBlockByHashAndContext(context.Background(), block.Header().Hash(), 1)
 				if regionExternalBlock == nil {
 					log.Println("regionExternalBlock is nil for difficulty context 0", "hash", newHead.Hash(), "err", err)
 					break
@@ -420,7 +420,7 @@ func (m *Manager) subscribeNewHeadClient(client *ethclient.Client, difficultyCon
 				sealed := regionBlock.WithSeal(regionBlock.Header())
 				m.orderedBlockClients.regionClients[int(regionBlock.Header().Location[0])-1].SendMinedBlock(context.Background(), sealed, true, true)
 
-				zoneExternalBlock, err := m.orderedBlockClients.primeClient.GetExternalBlockTraceSet(context.Background(), block.Header().Hash(), 2)
+				zoneExternalBlock, err := m.orderedBlockClients.primeClient.GetExternalBlockByHashAndContext(context.Background(), block.Header().Hash(), 2)
 				if zoneExternalBlock == nil {
 					log.Println("zoneExternalBlock is nil for difficulty context 0", "hash", newHead.Hash(), "err", err)
 					break
@@ -432,7 +432,7 @@ func (m *Manager) subscribeNewHeadClient(client *ethclient.Client, difficultyCon
 
 				m.SendClientsExtBlock(difficultyContext, []int{1, 2}, block, receiptBlock)
 			} else if difficultyContext == 1 {
-				zoneExternalBlock, err := m.orderedBlockClients.regionClients[int(block.Header().Location[0])-1].GetExternalBlockTraceSet(context.Background(), block.Header().Hash(), 2)
+				zoneExternalBlock, err := m.orderedBlockClients.regionClients[int(block.Header().Location[0])-1].GetExternalBlockByHashAndContext(context.Background(), block.Header().Hash(), 2)
 				if zoneExternalBlock == nil {
 					log.Println("zoneExternalBlock is nil for difficulty context 1", "hash", newHead.Hash(), "err", err)
 					break
@@ -585,14 +585,14 @@ func (m *Manager) subscribeMissingExternalBlockClient(client *ethclient.Client, 
 				// if we don't find the block we have to reconstruct the block from the external block from a dominant chain
 			} else {
 				// check the prime to see if the external block for the given context exists
-				externalBlock, _ := m.orderedBlockClients.primeClient.GetExternalBlockTraceSet(context.Background(), missingExternalBlock.Hash, missingExternalBlock.Context)
+				externalBlock, _ := m.orderedBlockClients.primeClient.GetExternalBlockByHashAndContext(context.Background(), missingExternalBlock.Hash, missingExternalBlock.Context)
 				// if we find the external block in prime, we stop or else we continue to look at the region
 				if externalBlock != nil {
 					block = types.NewBlockWithHeader(externalBlock.Header()).WithBody(externalBlock.Transactions(), externalBlock.Uncles())
 					receipts = externalBlock.Body().Receipts
 				} else {
 					// check the corresponding region chain to see if the external block for the given context exists
-					externalBlock, err = m.orderedBlockClients.regionClients[int(missingExternalBlock.Location[0])-1].GetExternalBlockTraceSet(context.Background(), missingExternalBlock.Hash, missingExternalBlock.Context)
+					externalBlock, err = m.orderedBlockClients.regionClients[int(missingExternalBlock.Location[0])-1].GetExternalBlockByHashAndContext(context.Background(), missingExternalBlock.Hash, missingExternalBlock.Context)
 					// if we find the external block in the region we stop or there is currently no way to get the missing external block
 					if externalBlock != nil {
 						block = types.NewBlockWithHeader(externalBlock.Header()).WithBody(externalBlock.Transactions(), externalBlock.Uncles())
