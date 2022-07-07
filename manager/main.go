@@ -642,12 +642,14 @@ func (m *Manager) subscribeMissingExternalBlockClient(client *ethclient.Client, 
 			// if we find the block
 			if block != nil {
 				receiptBlock, err := client.GetBlockReceipts(context.Background(), missingExternalBlock.Hash)
-				receipts = receiptBlock.Receipts()
-
+				if receiptBlock == nil {
+					log.Println("Failed to get receiptBlock in missing external block")
+				}
 				if err != nil {
 					log.Println("Failed to get block receipts from chain in ", missingExternalBlock.Location, err)
 					continue
 				}
+				receipts = receiptBlock.Receipts()
 				// if we don't find the block we have to reconstruct the block from the external block from a dominant chain
 			} else {
 				// check the prime to see if the external block for the given context exists
