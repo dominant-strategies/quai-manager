@@ -536,30 +536,38 @@ func (m *Manager) subscribeReOrgClients(client *ethclient.Client, location strin
 
 			// check if we get the newSubs in the reOrgData
 			if reOrgData.NewSubs != nil {
-
 				newSubs := reOrgData.NewSubs
 				// invert the array of newSubs block
 				for i, j := 0, len(newSubs)-1; i < j; i, j = i+1, j-1 {
 					newSubs[i], newSubs[j] = newSubs[j], newSubs[i]
 				}
 
-				var domClient *ethclient.Client
+				newSubordinateBlocks := make([]*types.ExternalBlock, 0)
+				for _, newSub := range newSubs {
+					extBlock, err := client.GetExternalBlockByHashAndContext(context.Background(), newSub, reOrgData.NewSubContext)
+					if err != nil {
+						continue
+					}
+					newSubordinateBlocks = append(newSubordinateBlocks, extBlock)
+				}
+
+				var subClient *ethclient.Client
 				if difficultyContext == 0 {
 					// If the rollback event got triggered in the prime we send the newSubs for addition to the region
-					domClient = m.orderedBlockClients.regionClients[int(location[0])-1]
+					subClient = m.orderedBlockClients.regionClients[int(reOrgData.ReOrgHeader.Location[0])-1]
 				} else if difficultyContext == 1 {
 					// If the rollback event got triggered in the region we send the newSubs for addition to the zone
-					domClient = m.orderedBlockClients.zoneClients[int(location[0])-1][int(location[1])-1]
+					subClient = m.orderedBlockClients.zoneClients[int(reOrgData.ReOrgHeader.Location[0])-1][int(reOrgData.ReOrgHeader.Location[1])-1]
 				} else {
 					log.Println("Reorg Event: difficulty context used for the reorg subscription is not 0 or 1 but is ", difficultyContext)
 				}
 
-				for _, extBlock := range newSubs {
+				for _, extBlock := range newSubordinateBlocks {
 					// extract the block to the
 					block := types.NewBlockWithHeader(extBlock.Header()).WithBody(extBlock.Transactions(), extBlock.Uncles())
-					fmt.Println("Sending new sub", block.Header().Number, block.Hash())
+					log.Println("Sending new sub", "num", block.Header().Number, "hash", block.Hash())
 					// Send the external blocks as mined blocks
-					domClient.SendMinedBlock(context.Background(), block.WithSeal(block.Header()), true, true)
+					subClient.SendMinedBlock(context.Background(), block.WithSeal(block.Header()), true, true)
 				}
 			}
 
