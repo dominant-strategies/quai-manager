@@ -590,19 +590,6 @@ func (m *Manager) subscribeReOrgClients(client *ethclient.Client, location strin
 				}
 
 				for _, extBlock := range newSubordinateBlocks {
-					fmt.Println("len of extBlock uncles", extBlock.Hash(), len(extBlock.Uncles()), len(extBlock.Body().Uncles))
-					// for _, uncle := range extBlock.Uncles() {
-					// 	extUncle, err := client.GetExternalBlockByHashAndContext(context.Background(), uncle.Hash(), reOrgData.NewSubContext)
-					// 	if err != nil {
-					// 		fmt.Println("err in extUncle", err)
-					// 		continue
-					// 	}
-					// 	// extract the block to the
-					// 	uncle := types.NewBlockWithHeader(extUncle.Header()).WithBody(extUncle.Transactions(), extUncle.Uncles())
-					// 	// Send the external blocks as mined blocks
-					// 	subClient.SendMinedBlock(context.Background(), uncle.WithSeal(uncle.Header()), true, true)
-					// }
-
 					// extract the block to the
 					block := types.NewBlockWithHeader(extBlock.Header()).WithBody(extBlock.Transactions(), extBlock.Uncles())
 					// Send the external blocks as mined blocks
