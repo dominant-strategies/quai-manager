@@ -856,7 +856,7 @@ func (m *Manager) miningLoop() error {
 			m.lock.Unlock()
 
 			headerNull := m.headerNullCheck()
-			if headerNull == nil {
+			if headerNull == nil && m.MinimumPeerInSlice() {
 				log.Println("Starting to mine:  ", header.Number, "location", m.location, "difficulty", header.Difficulty)
 				if err := m.engine.SealHeader(header, m.resultCh, stopCh); err != nil {
 					log.Println("Block sealing failed", "err", err)
@@ -864,6 +864,16 @@ func (m *Manager) miningLoop() error {
 			}
 		}
 	}
+}
+
+// MinimumPeerInSlice checks if the mining slice has more than or equal to 2 peers in the mining slice
+func (m *Manager) MinimumPeerInSlice() bool {
+
+	primePeerCount, _ := m.orderedBlockClients.primeClient.PeerCount(context.Background())
+	regionPeerCount, _ := m.orderedBlockClients.regionClients[int(m.location[0])-1].PeerCount(context.Background())
+	zonePeerCount, _ := m.orderedBlockClients.zoneClients[int(m.location[0])-1][int(m.location[1])-1].PeerCount(context.Background())
+
+	return (primePeerCount >= 2) && (regionPeerCount >= 2) && (zonePeerCount >= 2)
 }
 
 // WatchHashRate is a simple method to watch the hashrate of our miner and log the output.
