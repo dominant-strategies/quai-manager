@@ -414,7 +414,7 @@ func (m *Manager) subscribeNewHeadClient(client *ethclient.Client, difficultyCon
 	for {
 		select {
 		case newHead := <-newHeadChannel:
-			log.Println("New Head Event:", "location", newHead.Location, "context", difficultyContext, "number", newHead.Number, "hash", newHead.Hash())
+			// log.Println("New Head Event:", "location", newHead.Location, "context", difficultyContext, "number", newHead.Number, "hash", newHead.Hash())
 
 			// get the block and receipt block
 			block, err := client.BlockByHash(context.Background(), newHead.Hash())
@@ -592,7 +592,6 @@ func (m *Manager) subscribeReOrgClients(client *ethclient.Client, location strin
 				for _, extBlock := range newSubordinateBlocks {
 					// extract the block to the
 					block := types.NewBlockWithHeader(extBlock.Header()).WithBody(extBlock.Transactions(), extBlock.Uncles())
-					log.Println("Sending new sub", "num", block.Header().Number, "hash", block.Hash())
 					// Send the external blocks as mined blocks
 					subClient.SendMinedBlock(context.Background(), block.WithSeal(block.Header()), true, true)
 				}
