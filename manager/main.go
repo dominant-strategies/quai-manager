@@ -11,10 +11,12 @@ import (
 	"math/big"
 	"math/rand"
 	"os"
+	"runtime"
 	"strconv"
 	"sync"
 	"time"
 
+	"github.com/TwiN/go-color"
 	lru "github.com/hashicorp/golang-lru"
 	"github.com/spruce-solutions/go-quai/common"
 	"github.com/spruce-solutions/go-quai/common/hexutil"
@@ -32,6 +34,29 @@ const (
 )
 
 var exit = make(chan bool)
+var Reset = "\033[0m"
+var Red = "\033[31m"
+var Green = "\033[32m"
+var Yellow = "\033[33m"
+var Blue = "\033[34m"
+var Purple = "\033[35m"
+var Cyan = "\033[36m"
+var Gray = "\033[37m"
+var White = "\033[97m"
+
+func init() {
+	if runtime.GOOS == "windows" {
+		Reset = ""
+		Red = ""
+		Green = ""
+		Yellow = ""
+		Blue = ""
+		Purple = ""
+		Cyan = ""
+		Gray = ""
+		White = ""
+	}
+}
 
 type Manager struct {
 	engine *blake3.Blake3
@@ -159,7 +184,7 @@ func main() {
 
 		config.Location = []byte{RegionLocArr[0], ZoneLocArr[0]}
 		config.Mine = mine == 1
-		fmt.Println("Manual mode started")
+		log.Println(color.Ize(color.Red, "Manual mode started"))
 	} else {
 		if config.Auto && config.Mine { // auto-miner
 			config.Location = findBestLocation(allClients)
@@ -532,10 +557,10 @@ func (m *Manager) subscribeReOrgClients(client *ethclient.Client, location strin
 	for {
 		select {
 		case reOrgData := <-reOrgData:
-			log.Println("Reorg Event:", "location", location, "context", difficultyContext, "number", reOrgData.ReOrgHeader.Number, "hash", reOrgData.ReOrgHeader.Hash().Hex())
-
+			log.Println("Reorg Event:", "location", location, "context", difficultyContext)
 			// check if we get the newSubs in the reOrgData
-			if reOrgData.NewSubs != nil {
+			if len(reOrgData.NewSubs) > 0 {
+				log.Println("Reorg Event:", "new subs", len(reOrgData.NewSubs))
 				newSubs := reOrgData.NewSubs
 				// invert the array of newSubs block
 				for i, j := 0, len(newSubs)-1; i < j; i, j = i+1, j-1 {
@@ -551,13 +576,15 @@ func (m *Manager) subscribeReOrgClients(client *ethclient.Client, location strin
 					newSubordinateBlocks = append(newSubordinateBlocks, extBlock)
 				}
 
+				subLocation := newSubordinateBlocks[0].Header().Location
+
 				var subClient *ethclient.Client
 				if difficultyContext == 0 {
 					// If the rollback event got triggered in the prime we send the newSubs for addition to the region
-					subClient = m.orderedBlockClients.regionClients[int(reOrgData.ReOrgHeader.Location[0])-1]
+					subClient = m.orderedBlockClients.regionClients[int(subLocation[0])-1]
 				} else if difficultyContext == 1 {
 					// If the rollback event got triggered in the region we send the newSubs for addition to the zone
-					subClient = m.orderedBlockClients.zoneClients[int(reOrgData.ReOrgHeader.Location[0])-1][int(reOrgData.ReOrgHeader.Location[1])-1]
+					subClient = m.orderedBlockClients.zoneClients[int(subLocation[0])-1][int(subLocation[1])-1]
 				} else {
 					log.Println("Reorg Event: difficulty context used for the reorg subscription is not 0 or 1 but is ", difficultyContext)
 				}
@@ -571,9 +598,12 @@ func (m *Manager) subscribeReOrgClients(client *ethclient.Client, location strin
 				}
 			}
 
-			filteredReOrgData := m.filterReOrgData(reOrgData.OldChainHeaders)
-			for _, header := range filteredReOrgData {
-				m.sendReOrgHeader(header, header.Location, difficultyContext, reOrgData)
+			if reOrgData.ReOrgHeader != nil && len(reOrgData.ReOrgHeader.Location) > 0 {
+				log.Println("Reorg Event:", reOrgData.ReOrgHeader.Number, "hash", reOrgData.ReOrgHeader.Hash().Hex())
+				filteredReOrgData := m.filterReOrgData(reOrgData.OldChainHeaders)
+				for _, header := range filteredReOrgData {
+					m.sendReOrgHeader(header, header.Location, difficultyContext, reOrgData)
+				}
 			}
 		}
 	}
@@ -937,15 +967,18 @@ func (m *Manager) resultLoop() error {
 			header := bundle.Header
 
 			if bundle.Context == 0 {
-				log.Println("PRIME block mined: ", header.Number, header.Hash())
+				log.Println(color.Ize(color.Red, "PRIME block mined"))
+				log.Println("PRIME:", header.Number, header.Hash())
 			}
 
 			if bundle.Context == 1 {
-				log.Println("REGION block mined:", header.Number, header.Hash())
+				log.Println(color.Ize(color.Yellow, "REGION block mined"))
+				log.Println("REGION:", header.Number, header.Hash())
 			}
 
 			if bundle.Context == 2 {
-				log.Println("ZONE block mined:  ", header.Number, header.Hash())
+				log.Println(color.Ize(color.Blue, "Zone block mined"))
+				log.Println("ZONE:", header.Number, header.Hash())
 			}
 
 			// Check to see that all nodes are running before sending blocks to them.
