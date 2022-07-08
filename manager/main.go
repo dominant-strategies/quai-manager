@@ -758,7 +758,6 @@ func (m *Manager) sendReOrgHeader(header *types.Header, location []byte, difficu
 // PendingBlocks gets the latest block when we have received a new pending header. This will get the receipts,
 // transactions, and uncles to be stored during mining.
 func (m *Manager) fetchPendingBlocks(client *ethclient.Client, sliceIndex int) {
-	retryAttempts := 5
 	var receiptBlock *types.ReceiptBlock
 	var err error
 
@@ -782,25 +781,37 @@ func (m *Manager) fetchPendingBlocks(client *ethclient.Client, sliceIndex int) {
 	}
 
 	// retrying for 5 times if pending block not found
-	if err != nil {
+	if err != nil || receiptBlock == nil {
 		log.Println("Pending block not found for index:", sliceIndex, "error:", err)
+		found := false
+		attempts := 0
+		lastUpdatedAt := time.Now()
 
-		for i := 0; ; i++ {
+		for !found {
+			if time.Now().Sub(lastUpdatedAt).Hours() >= 12 {
+				attempts = 0
+			}
+
 			receiptBlock, err = client.GetPendingBlock(context.Background())
-			if err == nil {
+			if err == nil && receiptBlock != nil {
 				break
 			}
+			lastUpdatedAt = time.Now()
+			attempts += 1
 
-			if i >= retryAttempts {
-				log.Println("Pending block was never found for index:", sliceIndex, " even after ", retryAttempts, " retry attempts ", "error:", err)
-				break
+			// exponential back-off implemented
+			delaySecs := int64(math.Floor((math.Pow(2, float64(attempts)) - 1) * 0.5))
+			if delaySecs > exponentialBackoffCeilingSecs {
+				delaySecs = exponentialBackoffCeilingSecs
 			}
 
-			time.Sleep(time.Second)
+			// should only get here if the ffmpeg record stream process dies
+			fmt.Printf("This is attempt %d to fetch pending block. Waiting %d seconds and then retrying...\n", attempts, delaySecs)
 
-			log.Println("Retry attempt:", i+1, "Pending block not found for index:", sliceIndex, "error:", err)
+			time.Sleep(time.Duration(delaySecs) * time.Second)
 		}
 	}
+
 	m.lock.Unlock()
 	switch sliceIndex {
 	case 0:
