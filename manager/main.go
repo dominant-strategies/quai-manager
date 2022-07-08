@@ -671,6 +671,10 @@ func (m *Manager) subscribeMissingExternalBlockClient(client *ethclient.Client, 
 					}
 				}
 			}
+			// Shouldn't hit this case but just in case the block is still not found and we haven't continued.
+			if block == nil {
+				continue
+			}
 
 			// sending the external Block back to the client
 			var extClient *ethclient.Client
