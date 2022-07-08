@@ -11,10 +11,12 @@ import (
 	"math/big"
 	"math/rand"
 	"os"
+	"runtime"
 	"strconv"
 	"sync"
 	"time"
 
+	"github.com/TwiN/go-color"
 	lru "github.com/hashicorp/golang-lru"
 	"github.com/spruce-solutions/go-quai/common"
 	"github.com/spruce-solutions/go-quai/common/hexutil"
@@ -32,6 +34,29 @@ const (
 )
 
 var exit = make(chan bool)
+var Reset = "\033[0m"
+var Red = "\033[31m"
+var Green = "\033[32m"
+var Yellow = "\033[33m"
+var Blue = "\033[34m"
+var Purple = "\033[35m"
+var Cyan = "\033[36m"
+var Gray = "\033[37m"
+var White = "\033[97m"
+
+func init() {
+	if runtime.GOOS == "windows" {
+		Reset = ""
+		Red = ""
+		Green = ""
+		Yellow = ""
+		Blue = ""
+		Purple = ""
+		Cyan = ""
+		Gray = ""
+		White = ""
+	}
+}
 
 type Manager struct {
 	engine *blake3.Blake3
@@ -159,7 +184,7 @@ func main() {
 
 		config.Location = []byte{RegionLocArr[0], ZoneLocArr[0]}
 		config.Mine = mine == 1
-		fmt.Println("Manual mode started")
+		log.Println(color.Ize(color.Red, "Manual mode started"))
 	} else {
 		if config.Auto && config.Mine { // auto-miner
 			config.Location = findBestLocation(allClients)
@@ -389,7 +414,7 @@ func (m *Manager) subscribeNewHeadClient(client *ethclient.Client, difficultyCon
 	for {
 		select {
 		case newHead := <-newHeadChannel:
-			log.Println("New Head Event:", "location", newHead.Location, "context", difficultyContext, "number", newHead.Number, "hash", newHead.Hash())
+			// log.Println("New Head Event:", "location", newHead.Location, "context", difficultyContext, "number", newHead.Number, "hash", newHead.Hash())
 
 			// get the block and receipt block
 			block, err := client.BlockByHash(context.Background(), newHead.Hash())
@@ -532,11 +557,52 @@ func (m *Manager) subscribeReOrgClients(client *ethclient.Client, location strin
 	for {
 		select {
 		case reOrgData := <-reOrgData:
-			log.Println("Reorg Event:", "location", location, "context", difficultyContext, "number", reOrgData.ReOrgHeader.Number, "hash", reOrgData.ReOrgHeader.Hash().Hex())
+			log.Println("Reorg Event:", "location", location, "context", difficultyContext)
+			// check if we get the newSubs in the reOrgData
+			if len(reOrgData.NewSubs) > 0 {
+				log.Println("Reorg Event:", "new subs", len(reOrgData.NewSubs))
+				newSubs := reOrgData.NewSubs
+				// invert the array of newSubs block
+				for i, j := 0, len(newSubs)-1; i < j; i, j = i+1, j-1 {
+					newSubs[i], newSubs[j] = newSubs[j], newSubs[i]
+				}
 
-			filteredReOrgData := m.filterReOrgData(reOrgData.OldChainHeaders)
-			for _, header := range filteredReOrgData {
-				m.sendReOrgHeader(header, header.Location, difficultyContext, reOrgData)
+				newSubordinateBlocks := make([]*types.ExternalBlock, 0)
+				for _, newSub := range newSubs {
+					extBlock, err := client.GetExternalBlockByHashAndContext(context.Background(), newSub, reOrgData.NewSubContext)
+					if err != nil {
+						continue
+					}
+					newSubordinateBlocks = append(newSubordinateBlocks, extBlock)
+				}
+
+				subLocation := newSubordinateBlocks[0].Header().Location
+
+				var subClient *ethclient.Client
+				if difficultyContext == 0 {
+					// If the rollback event got triggered in the prime we send the newSubs for addition to the region
+					subClient = m.orderedBlockClients.regionClients[int(subLocation[0])-1]
+				} else if difficultyContext == 1 {
+					// If the rollback event got triggered in the region we send the newSubs for addition to the zone
+					subClient = m.orderedBlockClients.zoneClients[int(subLocation[0])-1][int(subLocation[1])-1]
+				} else {
+					log.Println("Reorg Event: difficulty context used for the reorg subscription is not 0 or 1 but is ", difficultyContext)
+				}
+
+				for _, extBlock := range newSubordinateBlocks {
+					// extract the block to the
+					block := types.NewBlockWithHeader(extBlock.Header()).WithBody(extBlock.Transactions(), extBlock.Uncles())
+					// Send the external blocks as mined blocks
+					subClient.SendMinedBlock(context.Background(), block.WithSeal(block.Header()), true, true)
+				}
+			}
+
+			if reOrgData.ReOrgHeader != nil && len(reOrgData.ReOrgHeader.Location) > 0 {
+				log.Println("Reorg Event:", reOrgData.ReOrgHeader.Number, "hash", reOrgData.ReOrgHeader.Hash().Hex())
+				filteredReOrgData := m.filterReOrgData(reOrgData.OldChainHeaders)
+				for _, header := range filteredReOrgData {
+					m.sendReOrgHeader(header, header.Location, difficultyContext, reOrgData)
+				}
 			}
 		}
 	}
@@ -576,12 +642,14 @@ func (m *Manager) subscribeMissingExternalBlockClient(client *ethclient.Client, 
 			// if we find the block
 			if block != nil {
 				receiptBlock, err := client.GetBlockReceipts(context.Background(), missingExternalBlock.Hash)
-				receipts = receiptBlock.Receipts()
-
+				if receiptBlock == nil {
+					log.Println("Failed to get receiptBlock in missing external block")
+				}
 				if err != nil {
 					log.Println("Failed to get block receipts from chain in ", missingExternalBlock.Location, err)
 					continue
 				}
+				receipts = receiptBlock.Receipts()
 				// if we don't find the block we have to reconstruct the block from the external block from a dominant chain
 			} else {
 				// check the prime to see if the external block for the given context exists
@@ -690,7 +758,6 @@ func (m *Manager) sendReOrgHeader(header *types.Header, location []byte, difficu
 // PendingBlocks gets the latest block when we have received a new pending header. This will get the receipts,
 // transactions, and uncles to be stored during mining.
 func (m *Manager) fetchPendingBlocks(client *ethclient.Client, sliceIndex int) {
-	retryAttempts := 5
 	var receiptBlock *types.ReceiptBlock
 	var err error
 
@@ -714,25 +781,37 @@ func (m *Manager) fetchPendingBlocks(client *ethclient.Client, sliceIndex int) {
 	}
 
 	// retrying for 5 times if pending block not found
-	if err != nil {
+	if err != nil || receiptBlock == nil {
 		log.Println("Pending block not found for index:", sliceIndex, "error:", err)
+		found := false
+		attempts := 0
+		lastUpdatedAt := time.Now()
 
-		for i := 0; ; i++ {
+		for !found {
+			if time.Now().Sub(lastUpdatedAt).Hours() >= 12 {
+				attempts = 0
+			}
+
 			receiptBlock, err = client.GetPendingBlock(context.Background())
-			if err == nil {
+			if err == nil && receiptBlock != nil {
 				break
 			}
+			lastUpdatedAt = time.Now()
+			attempts += 1
 
-			if i >= retryAttempts {
-				log.Println("Pending block was never found for index:", sliceIndex, " even after ", retryAttempts, " retry attempts ", "error:", err)
-				break
+			// exponential back-off implemented
+			delaySecs := int64(math.Floor((math.Pow(2, float64(attempts)) - 1) * 0.5))
+			if delaySecs > exponentialBackoffCeilingSecs {
+				delaySecs = exponentialBackoffCeilingSecs
 			}
 
-			time.Sleep(time.Second)
+			// should only get here if the ffmpeg record stream process dies
+			fmt.Printf("This is attempt %d to fetch pending block. Waiting %d seconds and then retrying...\n", attempts, delaySecs)
 
-			log.Println("Retry attempt:", i+1, "Pending block not found for index:", sliceIndex, "error:", err)
+			time.Sleep(time.Duration(delaySecs) * time.Second)
 		}
 	}
+
 	m.lock.Unlock()
 	switch sliceIndex {
 	case 0:
@@ -900,15 +979,18 @@ func (m *Manager) resultLoop() error {
 			header := bundle.Header
 
 			if bundle.Context == 0 {
-				log.Println("PRIME block mined: ", header.Number, header.Hash())
+				log.Println(color.Ize(color.Red, "PRIME block mined"))
+				log.Println("PRIME:", header.Number, header.Hash())
 			}
 
 			if bundle.Context == 1 {
-				log.Println("REGION block mined:", header.Number, header.Hash())
+				log.Println(color.Ize(color.Yellow, "REGION block mined"))
+				log.Println("REGION:", header.Number, header.Hash())
 			}
 
 			if bundle.Context == 2 {
-				log.Println("ZONE block mined:  ", header.Number, header.Hash())
+				log.Println(color.Ize(color.Blue, "Zone block mined"))
+				log.Println("ZONE:", header.Number, header.Hash())
 			}
 
 			// Check to see that all nodes are running before sending blocks to them.
