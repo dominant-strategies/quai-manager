@@ -600,6 +600,65 @@ func (m *Manager) subscribeMissingExternalBlockClient(client *ethclient.Client, 
 	}
 }
 
+func (m *Manager) subscribeCrossChainDataClient(client *ethclient.Client, chain []byte) {
+	crossChainData := make(chan core.CrossChainData, 1)
+	sub, err := client.SubscribeCrossChainData(context.Background(), crossChainData)
+	if err != nil {
+		log.Fatal("Failed to subscribe to the cross chain notifications in", chain, err)
+	}
+	defer sub.Unsubscribe()
+
+	for {
+		select {
+		case data := <-crossChainData:
+			log.Println("Cross Chain Data Event:", "location", chain, "hashes", len(data.Hashes))
+			// check if we get the newSubs in the reOrgData
+			if len(data.Hashes) == 0 {
+				continue
+			}
+			hashes := data.Hashes
+			// invert the array of newSubs block
+			for i, j := 0, len(hashes)-1; i < j; i, j = i+1, j-1 {
+				hashes[i], hashes[j] = hashes[j], hashes[i]
+			}
+
+			newSubordinateBlocks := make([]*types.ExternalBlock, 0)
+			for _, newHash := range hashes {
+				extBlock, err := client.GetExternalBlockByHashAndContext(context.Background(), newHash, data.Context)
+				if err != nil {
+					fmt.Println("err getting ext block", newHash)
+					continue
+				}
+				newSubordinateBlocks = append(newSubordinateBlocks, extBlock)
+			}
+
+			var subLocation []byte
+			if len(newSubordinateBlocks) != 0 && newSubordinateBlocks[0] != nil && newSubordinateBlocks[0].Header().Location != nil {
+				subLocation = newSubordinateBlocks[0].Header().Location
+			} else {
+				continue
+			}
+
+			var destClient *ethclient.Client
+			switch data.Context {
+			case 0:
+				destClient = m.orderedBlockClients.primeClient
+			case 1:
+				destClient = m.orderedBlockClients.regionClients[int(subLocation[0])-1]
+			case 2:
+				destClient = m.orderedBlockClients.zoneClients[int(subLocation[0])-1][int(subLocation[1])-1]
+			}
+
+			for _, extBlock := range newSubordinateBlocks {
+				// extract the block to the
+				block := types.NewBlockWithHeader(extBlock.Header()).WithBody(extBlock.Transactions(), extBlock.Uncles())
+				// Send the external blocks as mined blocks
+				destClient.SendMinedBlock(context.Background(), block.WithSeal(block.Header()), true, true)
+			}
+		}
+	}
+}
+
 // PendingBlocks gets the latest block when we have received a new pending header. This will get the receipts,
 // transactions, and uncles to be stored during mining.
 func (m *Manager) fetchPendingBlocks(client *ethclient.Client, sliceIndex int) {
@@ -781,9 +840,9 @@ func (m *Manager) miningLoop() error {
 
 			headerNull := m.headerNullCheck()
 			if headerNull == nil {
-				log.Println("Starting to mine:  ", header.Number, "location", m.location, "difficulty", header.Difficulty)
 				var err error
 				proceed := true
+				log.Println("Starting to mine:  ", header.Number, "location", m.location, "difficulty", header.Difficulty)
 				_, err = m.orderedBlockClients.primeClient.CheckPCRC(context.Background(), header)
 				if err != nil {
 					log.Println("Error in Prime PCRC", err)
@@ -803,7 +862,7 @@ func (m *Manager) miningLoop() error {
 				if !proceed {
 					continue
 				}
-				log.Println("PCRC checks passed")
+				fmt.Println("Passed PCRC, starting to mine")
 				if err := m.engine.SealHeader(header, m.resultCh, stopCh); err != nil {
 					log.Println("Block sealing failed", "err", err)
 				}
@@ -869,6 +928,7 @@ func (m *Manager) resultLoop() error {
 			// Check proper difficulty for which nodes to send block to
 			// Notify blocks to put in cache before assembling new block on node
 			if bundle.Context == 0 && header.Number[0] != nil {
+				m.combinedHeader.Number = []*big.Int{nil, nil, nil}
 				var wg sync.WaitGroup
 				wg.Add(1)
 				go m.SendClientsMinedExtBlock(0, []int{1, 2}, header, &wg)
@@ -888,6 +948,7 @@ func (m *Manager) resultLoop() error {
 
 			// If Region difficulty send to Region
 			if bundle.Context == 1 && header.Number[1] != nil {
+				m.combinedHeader.Number = []*big.Int{m.combinedHeader.Number[0], nil, nil}
 				var wg sync.WaitGroup
 				wg.Add(1)
 				go m.SendClientsMinedExtBlock(1, []int{0, 2}, header, &wg)
@@ -903,6 +964,7 @@ func (m *Manager) resultLoop() error {
 
 			// If Zone difficulty send to Zone
 			if bundle.Context == 2 && header.Number[2] != nil {
+				m.combinedHeader.Number = []*big.Int{m.combinedHeader.Number[0], m.combinedHeader.Number[1], nil}
 				var wg sync.WaitGroup
 				wg.Add(1)
 				go m.SendClientsMinedExtBlock(2, []int{0, 1}, header, &wg)
