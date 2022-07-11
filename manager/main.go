@@ -250,6 +250,7 @@ func main() {
 	go m.subscribeNewHead()
 
 	go m.subscribeMissingExternalBlock()
+	go m.subscribeCrossChainData()
 
 	if config.Mine {
 		log.Println("Starting manager in location ", config.Location)
@@ -490,6 +491,21 @@ func (m *Manager) subscribeMissingExternalBlock() {
 	}
 }
 
+func (m *Manager) subscribeCrossChainData() {
+	// prime client
+	go m.subscribeCrossChainDataClient(m.orderedBlockClients.primeClient, []byte{0, 0})
+	// region clients
+	for i, regionClient := range m.orderedBlockClients.regionClients {
+		go m.subscribeCrossChainDataClient(regionClient, []byte{uint8(i + 1), 0})
+	}
+	// zone clients
+	for i, zoneClients := range m.orderedBlockClients.zoneClients {
+		for j, zoneClient := range zoneClients {
+			go m.subscribeCrossChainDataClient(zoneClient, []byte{uint8(i + 1), uint8(j + 1)})
+		}
+	}
+}
+
 // checkNonceEmpty checks if any of the headers have empty nonce
 func checkNonceEmpty(commonHead *types.Header, oldChain, newChain []*types.Header) bool {
 	if commonHead.Nonce == (types.BlockNonce{}) {
@@ -520,29 +536,29 @@ func (m *Manager) subscribeMissingExternalBlockClient(client *ethclient.Client, 
 	for {
 		select {
 		case missingExternalBlock := <-missingExternalBlockCh:
-			var client *ethclient.Client
+			var sendingClient *ethclient.Client
 			var cxt *big.Int
 			// prime
 			if missingExternalBlock.Context == 0 {
-				client = m.orderedBlockClients.primeClient
+				sendingClient = m.orderedBlockClients.primeClient
 				cxt = big.NewInt(0)
 			}
 			// regions
 			if missingExternalBlock.Context == 1 {
-				client = m.orderedBlockClients.regionClients[int(missingExternalBlock.Location[0])-1]
+				sendingClient = m.orderedBlockClients.regionClients[int(missingExternalBlock.Location[0])-1]
 				cxt = big.NewInt(1)
 			}
 			// zones
 			if missingExternalBlock.Context == 2 {
-				client = m.orderedBlockClients.zoneClients[int(missingExternalBlock.Location[0])-1][int(missingExternalBlock.Location[1])-1]
+				sendingClient = m.orderedBlockClients.zoneClients[int(missingExternalBlock.Location[0])-1][int(missingExternalBlock.Location[1])-1]
 				cxt = big.NewInt(2)
 			}
-			block, _ := client.BlockByHash(context.Background(), missingExternalBlock.Hash)
+			block, _ := sendingClient.BlockByHash(context.Background(), missingExternalBlock.Hash)
 
 			var receipts []*types.Receipt
 			// if we find the block
 			if block != nil {
-				receiptBlock, err := client.GetBlockReceipts(context.Background(), missingExternalBlock.Hash)
+				receiptBlock, err := sendingClient.GetBlockReceipts(context.Background(), missingExternalBlock.Hash)
 				if receiptBlock == nil {
 					log.Println("Failed to get receiptBlock in missing external block")
 				}
@@ -577,19 +593,8 @@ func (m *Manager) subscribeMissingExternalBlockClient(client *ethclient.Client, 
 				continue
 			}
 
-			// sending the external Block back to the client
-			var extClient *ethclient.Client
-			if int(chain[0]) == 0 && int(chain[1]) == 0 {
-				extClient = m.orderedBlockClients.primeClient
-			} else if int(chain[0]) != 0 && int(chain[1]) == 0 {
-				extClient = m.orderedBlockClients.regionClients[chain[0]-1]
-			} else {
-				extClient = m.orderedBlockClients.zoneClients[chain[0]-1][chain[1]-1]
-			}
-
-			if err := extClient.SendExternalBlock(context.Background(), block, receipts, cxt); err != nil {
+			if err := client.SendExternalBlock(context.Background(), block, receipts, cxt); err != nil {
 				log.Println("Failed to send external block to chain in ", missingExternalBlock.Location, err)
-				continue
 			}
 		}
 	}
@@ -777,6 +782,28 @@ func (m *Manager) miningLoop() error {
 			headerNull := m.headerNullCheck()
 			if headerNull == nil {
 				log.Println("Starting to mine:  ", header.Number, "location", m.location, "difficulty", header.Difficulty)
+				var err error
+				proceed := true
+				_, err = m.orderedBlockClients.primeClient.CheckPCRC(context.Background(), header)
+				if err != nil {
+					log.Println("Error in Prime PCRC", err)
+					proceed = false
+				}
+				_, err = m.orderedBlockClients.regionClients[m.location[0]-1].CheckPCRC(context.Background(), header)
+				if err != nil {
+					log.Println("Error in Region PCRC", err)
+					proceed = false
+				}
+				_, err = m.orderedBlockClients.zoneClients[m.location[0]-1][m.location[1]-1].CheckPCRC(context.Background(), header)
+				if err != nil {
+					log.Println("Error in Zone PCRC", err)
+					proceed = false
+				}
+
+				if !proceed {
+					continue
+				}
+				log.Println("PCRC checks passed")
 				if err := m.engine.SealHeader(header, m.resultCh, stopCh); err != nil {
 					log.Println("Block sealing failed", "err", err)
 				}
