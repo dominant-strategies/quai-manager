@@ -247,10 +247,7 @@ func main() {
 		location:             config.Location,
 	}
 
-	go m.subscribeNewHead()
-
 	go m.subscribeMissingExternalBlock()
-	go m.subscribeCrossChainData()
 
 	if config.Mine {
 		log.Println("Starting manager in location ", config.Location)
@@ -390,92 +387,6 @@ func (m *Manager) subscribePendingHeader(client *ethclient.Client, sliceIndex in
 	}
 }
 
-// subscribeNewHead passes new head blocks as external blocks to lower level chains.
-func (m *Manager) subscribeNewHead() {
-	// subscribe to the prime client at context 0
-	go m.subscribeNewHeadClient(m.orderedBlockClients.primeClient, 0)
-	// subscribe to the region clients
-	for i, blockClient := range m.orderedBlockClients.regionClients {
-		go m.subscribeNewHeadClient(blockClient, 1)
-		for _, zoneBlockClient := range m.orderedBlockClients.zoneClients[i] {
-			go m.subscribeNewHeadClient(zoneBlockClient, 2)
-		}
-	}
-}
-
-func (m *Manager) subscribeNewHeadClient(client *ethclient.Client, difficultyContext int) {
-	newHeadChannel := make(chan *types.Header, 1)
-	sub, err := client.SubscribeNewHead(context.Background(), newHeadChannel)
-	if err != nil {
-		log.Println("Failed to subscribe to the new head notifications ", err)
-	}
-	defer sub.Unsubscribe()
-
-	for {
-		select {
-		case newHead := <-newHeadChannel:
-			// log.Println("New Head Event:", "location", newHead.Location, "context", difficultyContext, "number", newHead.Number, "hash", newHead.Hash())
-
-			// get the block and receipt block
-			block, err := client.BlockByHash(context.Background(), newHead.Hash())
-			if err != nil {
-				log.Println("Failed to retrieve block for new head", "hash ", newHead.Hash(), "err", err)
-				continue
-			}
-
-			receiptBlock, receiptErr := client.GetBlockReceipts(context.Background(), newHead.Hash())
-			if receiptErr != nil {
-				log.Println("Failed to retrieve receipts for new head", "hash", newHead.Hash(), "err", receiptErr)
-				continue
-			}
-			if block.Header().Location == nil || len(block.Header().Location) == 0 {
-				continue
-			}
-
-			if difficultyContext == 0 {
-				// get the externalBlock for region and zone
-				regionExternalBlock, err := m.orderedBlockClients.primeClient.GetExternalBlockByHashAndContext(context.Background(), block.Header().Hash(), 1)
-				if regionExternalBlock == nil {
-					log.Println("regionExternalBlock is nil for difficulty context 0", "hash", newHead.Hash(), "err", err)
-					break
-				}
-				regionBlock := types.NewBlockWithHeader(regionExternalBlock.Header()).WithBody(regionExternalBlock.Transactions(), regionExternalBlock.Uncles())
-
-				// seal the region block
-				sealed := regionBlock.WithSeal(regionBlock.Header())
-				m.orderedBlockClients.regionClients[int(regionBlock.Header().Location[0])-1].SendMinedBlock(context.Background(), sealed, true, true)
-
-				zoneExternalBlock, err := m.orderedBlockClients.primeClient.GetExternalBlockByHashAndContext(context.Background(), block.Header().Hash(), 2)
-				if zoneExternalBlock == nil {
-					log.Println("zoneExternalBlock is nil for difficulty context 0", "hash", newHead.Hash(), "err", err)
-					break
-				}
-				zoneBlock := types.NewBlockWithHeader(zoneExternalBlock.Header()).WithBody(zoneExternalBlock.Transactions(), zoneExternalBlock.Uncles())
-				// seal the zone block
-				sealed = zoneBlock.WithSeal(zoneBlock.Header())
-				m.orderedBlockClients.zoneClients[int(zoneBlock.Header().Location[0])-1][int(zoneBlock.Header().Location[1])-1].SendMinedBlock(context.Background(), sealed, true, true)
-
-				m.SendClientsExtBlock(difficultyContext, []int{1, 2}, block, receiptBlock)
-			} else if difficultyContext == 1 {
-				zoneExternalBlock, err := m.orderedBlockClients.regionClients[int(block.Header().Location[0])-1].GetExternalBlockByHashAndContext(context.Background(), block.Header().Hash(), 2)
-				if zoneExternalBlock == nil {
-					log.Println("zoneExternalBlock is nil for difficulty context 1", "hash", newHead.Hash(), "err", err)
-					break
-				}
-				zoneBlock := types.NewBlockWithHeader(zoneExternalBlock.Header()).WithBody(zoneExternalBlock.Transactions(), zoneExternalBlock.Uncles())
-
-				// seal the zone block
-				sealed := zoneBlock.WithSeal(zoneBlock.Header())
-				m.orderedBlockClients.zoneClients[int(zoneBlock.Header().Location[0])-1][int(zoneBlock.Header().Location[1])-1].SendMinedBlock(context.Background(), sealed, true, true)
-
-				m.SendClientsExtBlock(difficultyContext, []int{0, 2}, block, receiptBlock)
-			} else if difficultyContext == 2 {
-				m.SendClientsExtBlock(difficultyContext, []int{0, 1}, block, receiptBlock)
-			}
-		}
-	}
-}
-
 func (m *Manager) subscribeMissingExternalBlock() {
 	// prime client
 	go m.subscribeMissingExternalBlockClient(m.orderedBlockClients.primeClient, []byte{0, 0})
@@ -489,40 +400,6 @@ func (m *Manager) subscribeMissingExternalBlock() {
 			go m.subscribeMissingExternalBlockClient(zoneClient, []byte{uint8(i + 1), uint8(j + 1)})
 		}
 	}
-}
-
-func (m *Manager) subscribeCrossChainData() {
-	// prime client
-	go m.subscribeCrossChainDataClient(m.orderedBlockClients.primeClient, []byte{0, 0})
-	// region clients
-	for i, regionClient := range m.orderedBlockClients.regionClients {
-		go m.subscribeCrossChainDataClient(regionClient, []byte{uint8(i + 1), 0})
-	}
-	// zone clients
-	for i, zoneClients := range m.orderedBlockClients.zoneClients {
-		for j, zoneClient := range zoneClients {
-			go m.subscribeCrossChainDataClient(zoneClient, []byte{uint8(i + 1), uint8(j + 1)})
-		}
-	}
-}
-
-// checkNonceEmpty checks if any of the headers have empty nonce
-func checkNonceEmpty(commonHead *types.Header, oldChain, newChain []*types.Header) bool {
-	if commonHead.Nonce == (types.BlockNonce{}) {
-		return false
-	}
-
-	for i := 0; i < len(oldChain); i++ {
-		if oldChain[i].Nonce == (types.BlockNonce{}) {
-			return false
-		}
-	}
-	for i := 0; i < len(newChain); i++ {
-		if newChain[i].Nonce == (types.BlockNonce{}) {
-			return false
-		}
-	}
-	return true
 }
 
 func (m *Manager) subscribeMissingExternalBlockClient(client *ethclient.Client, chain []byte) {
@@ -595,65 +472,6 @@ func (m *Manager) subscribeMissingExternalBlockClient(client *ethclient.Client, 
 
 			if err := client.SendExternalBlock(context.Background(), block, receipts, cxt); err != nil {
 				log.Println("Failed to send external block to chain in ", missingExternalBlock.Location, err)
-			}
-		}
-	}
-}
-
-func (m *Manager) subscribeCrossChainDataClient(client *ethclient.Client, chain []byte) {
-	crossChainData := make(chan core.CrossChainData, 1)
-	sub, err := client.SubscribeCrossChainData(context.Background(), crossChainData)
-	if err != nil {
-		log.Fatal("Failed to subscribe to the cross chain notifications in", chain, err)
-	}
-	defer sub.Unsubscribe()
-
-	for {
-		select {
-		case data := <-crossChainData:
-			log.Println("Cross Chain Data Event:", "location", chain, "hashes", len(data.Hashes))
-			// check if we get the newSubs in the reOrgData
-			if len(data.Hashes) == 0 {
-				continue
-			}
-			hashes := data.Hashes
-			// invert the array of newSubs block
-			for i, j := 0, len(hashes)-1; i < j; i, j = i+1, j-1 {
-				hashes[i], hashes[j] = hashes[j], hashes[i]
-			}
-
-			newSubordinateBlocks := make([]*types.ExternalBlock, 0)
-			for _, newHash := range hashes {
-				extBlock, err := client.GetExternalBlockByHashAndContext(context.Background(), newHash, data.Context)
-				if err != nil {
-					fmt.Println("err getting ext block", newHash)
-					continue
-				}
-				newSubordinateBlocks = append(newSubordinateBlocks, extBlock)
-			}
-
-			var subLocation []byte
-			if len(newSubordinateBlocks) != 0 && newSubordinateBlocks[0] != nil && newSubordinateBlocks[0].Header().Location != nil {
-				subLocation = newSubordinateBlocks[0].Header().Location
-			} else {
-				continue
-			}
-
-			var destClient *ethclient.Client
-			switch data.Context {
-			case 0:
-				destClient = m.orderedBlockClients.primeClient
-			case 1:
-				destClient = m.orderedBlockClients.regionClients[int(subLocation[0])-1]
-			case 2:
-				destClient = m.orderedBlockClients.zoneClients[int(subLocation[0])-1][int(subLocation[1])-1]
-			}
-
-			for _, extBlock := range newSubordinateBlocks {
-				// extract the block to the
-				block := types.NewBlockWithHeader(extBlock.Header()).WithBody(extBlock.Transactions(), extBlock.Uncles())
-				// Send the external blocks as mined blocks
-				destClient.SendMinedBlock(context.Background(), block.WithSeal(block.Header()), true, true)
 			}
 		}
 	}
