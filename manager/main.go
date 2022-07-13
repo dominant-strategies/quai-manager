@@ -248,7 +248,6 @@ func main() {
 	}
 
 	go m.subscribeNewHead()
-	go m.subscribeReOrg()
 
 	go m.subscribeMissingExternalBlock()
 
@@ -476,24 +475,6 @@ func (m *Manager) subscribeNewHeadClient(client *ethclient.Client, difficultyCon
 	}
 }
 
-// subscribe to the reorg notifications from all Prime and Region chians
-// subscribeReOrg subscribes to the reOrg events so that we can send the reorg
-// information to clients in lower contexts
-func (m *Manager) subscribeReOrg() {
-	prime := "prime"
-	regions := [3]string{"region-1", "region-2", "region-3"}
-	// subscribe to the prime and region clients
-	// prime is always true so simply directly subscribe
-	go m.subscribeReOrgClients(m.orderedBlockClients.primeClient, prime, 0)
-	go m.subscribeUncleClients(m.orderedBlockClients.primeClient, prime, 0)
-
-	// subscribe to the regions from external contexts
-	for i, client := range m.orderedBlockClients.regionClients {
-		go m.subscribeReOrgClients(client, regions[i], 1)
-		go m.subscribeUncleClients(client, regions[i], 1)
-	}
-}
-
 func (m *Manager) subscribeMissingExternalBlock() {
 	// prime client
 	go m.subscribeMissingExternalBlockClient(m.orderedBlockClients.primeClient, []byte{0, 0})
@@ -526,86 +507,6 @@ func checkNonceEmpty(commonHead *types.Header, oldChain, newChain []*types.Heade
 		}
 	}
 	return true
-}
-
-// compareDifficulty compares 2 chains and returns true if the newChain is heavier
-// than the oldChain and false otherwise
-func compareReorgDifficulty(commonHead *types.Header, oldChain, newChain []*types.Header, difficultyContext int) bool {
-
-	oldChainDifficulty := big.NewInt(0)
-	newChainDifficulty := big.NewInt(0)
-
-	nonceEmpty := checkNonceEmpty(commonHead, oldChain, newChain)
-
-	for i := 0; i < len(oldChain); i++ {
-		oldChainDifficulty.Add(oldChainDifficulty, oldChain[i].Difficulty[difficultyContext])
-	}
-	for i := 0; i < len(newChain); i++ {
-		newChainDifficulty.Add(newChainDifficulty, newChain[i].Difficulty[difficultyContext])
-	}
-	return newChainDifficulty.Cmp(oldChainDifficulty) > 0 && nonceEmpty
-}
-
-func (m *Manager) subscribeReOrgClients(client *ethclient.Client, location string, difficultyContext int) {
-	reOrgData := make(chan core.ReOrgRollup, 1)
-	sub, err := client.SubscribeReOrg(context.Background(), reOrgData)
-	if err != nil {
-		log.Fatal("Failed to subscribe to the reorg notifications in", location, err)
-	}
-	defer sub.Unsubscribe()
-
-	for {
-		select {
-		case reOrgData := <-reOrgData:
-			log.Println("Reorg Event:", "location", location, "context", difficultyContext)
-			// check if we get the newSubs in the reOrgData
-			if len(reOrgData.NewSubs) > 0 {
-				log.Println("Reorg Event:", "new subs", len(reOrgData.NewSubs))
-				newSubs := reOrgData.NewSubs
-				// invert the array of newSubs block
-				for i, j := 0, len(newSubs)-1; i < j; i, j = i+1, j-1 {
-					newSubs[i], newSubs[j] = newSubs[j], newSubs[i]
-				}
-
-				newSubordinateBlocks := make([]*types.ExternalBlock, 0)
-				for _, newSub := range newSubs {
-					extBlock, err := client.GetExternalBlockByHashAndContext(context.Background(), newSub, reOrgData.NewSubContext)
-					if err != nil {
-						continue
-					}
-					newSubordinateBlocks = append(newSubordinateBlocks, extBlock)
-				}
-
-				subLocation := newSubordinateBlocks[0].Header().Location
-
-				var subClient *ethclient.Client
-				if difficultyContext == 0 {
-					// If the rollback event got triggered in the prime we send the newSubs for addition to the region
-					subClient = m.orderedBlockClients.regionClients[int(subLocation[0])-1]
-				} else if difficultyContext == 1 {
-					// If the rollback event got triggered in the region we send the newSubs for addition to the zone
-					subClient = m.orderedBlockClients.zoneClients[int(subLocation[0])-1][int(subLocation[1])-1]
-				} else {
-					log.Println("Reorg Event: difficulty context used for the reorg subscription is not 0 or 1 but is ", difficultyContext)
-				}
-
-				for _, extBlock := range newSubordinateBlocks {
-					// extract the block to the
-					block := types.NewBlockWithHeader(extBlock.Header()).WithBody(extBlock.Transactions(), extBlock.Uncles())
-					// Send the external blocks as mined blocks
-					subClient.SendMinedBlock(context.Background(), block.WithSeal(block.Header()), true, true)
-				}
-			}
-
-			if reOrgData.ReOrgHeader != nil && len(reOrgData.ReOrgHeader.Location) > 0 {
-				log.Println("Reorg Event:", reOrgData.ReOrgHeader.Number, "hash", reOrgData.ReOrgHeader.Hash().Hex())
-				filteredReOrgData := m.filterReOrgData(reOrgData.OldChainHeaders)
-				for _, header := range filteredReOrgData {
-					m.sendReOrgHeader(header, header.Location, difficultyContext, reOrgData)
-				}
-			}
-		}
-	}
 }
 
 func (m *Manager) subscribeMissingExternalBlockClient(client *ethclient.Client, chain []byte) {
@@ -691,71 +592,6 @@ func (m *Manager) subscribeMissingExternalBlockClient(client *ethclient.Client, 
 				continue
 			}
 		}
-	}
-}
-
-// filterReOrgData constructs a map to store the rollback point for each region location
-func (m *Manager) filterReOrgData(headers []*types.Header) map[string]*types.Header {
-	var filteredReOrgData = map[string]*types.Header{}
-	// Reverse header list
-	for i, j := 0, len(headers)-1; i < j; i, j = i+1, j-1 {
-		headers[i], headers[j] = headers[j], headers[i]
-	}
-	for _, header := range headers {
-		_, exists := filteredReOrgData[string(header.Location)]
-		// Check if the entry already exists and if the block in the region context is earlier
-		// this ensures that we don't send in extra requests during a reorg rollback
-		if exists {
-			continue
-		} else {
-			filteredReOrgData[string(header.Location)] = header
-		}
-	}
-	return filteredReOrgData
-}
-
-func (m *Manager) subscribeUncleClients(client *ethclient.Client, location string, difficultyContext int) {
-	uncleEvent := make(chan *types.Header)
-	sub, err := client.SubscribeChainUncleEvent(context.Background(), uncleEvent)
-	if err != nil {
-		log.Fatal("Failed to subscribe to the side event notifications in", location, err)
-	}
-	defer sub.Unsubscribe()
-
-	for {
-		select {
-		case uncleEvent := <-uncleEvent:
-			log.Println("Uncle Event:", "location", uncleEvent.Location, "context", difficultyContext, "number", uncleEvent.Number, "hash", uncleEvent.Hash())
-			m.sendReOrgHeader(uncleEvent, uncleEvent.Location, difficultyContext, core.ReOrgRollup{OldChainHeaders: []*types.Header{uncleEvent}})
-		}
-	}
-}
-
-// getRegionIndex returns the location index of the reorgLocation
-func getRegionIndex(location string) int {
-	if location == "region-1" {
-		return 1
-	}
-	if location == "region-2" {
-		return 2
-	}
-	if location == "region-3" {
-		return 3
-	}
-	return -1
-}
-
-// sendReOrgHeader sends the reorg header to the respective region and zone clients
-func (m *Manager) sendReOrgHeader(header *types.Header, location []byte, difficultyContext int, reorgData core.ReOrgRollup) {
-	if difficultyContext < 1 {
-		// if the reorg happens in a prime context we have to send the reorg rollback
-		// to only the affected region and its zones
-		regionClient := m.orderedBlockClients.regionClients[location[0]-1]
-		go regionClient.SendReOrgData(context.Background(), header, reorgData.NewChainHeaders, reorgData.OldChainHeaders)
-	}
-	if difficultyContext < 2 {
-		zoneClient := m.orderedBlockClients.zoneClients[location[0]-1][location[1]-1]
-		go zoneClient.SendReOrgData(context.Background(), header, reorgData.NewChainHeaders, reorgData.OldChainHeaders)
 	}
 }
 
