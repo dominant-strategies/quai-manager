@@ -432,41 +432,8 @@ func (m *Manager) subscribeNewHeadClient(client *ethclient.Client, difficultyCon
 			}
 
 			if difficultyContext == 0 {
-				// get the externalBlock for region and zone
-				regionExternalBlock, err := m.orderedBlockClients.primeClient.GetExternalBlockByHashAndContext(context.Background(), block.Header().Hash(), 1)
-				if regionExternalBlock == nil {
-					log.Println("regionExternalBlock is nil for difficulty context 0", "hash", newHead.Hash(), "err", err)
-					break
-				}
-				regionBlock := types.NewBlockWithHeader(regionExternalBlock.Header()).WithBody(regionExternalBlock.Transactions(), regionExternalBlock.Uncles())
-
-				// seal the region block
-				sealed := regionBlock.WithSeal(regionBlock.Header())
-				m.orderedBlockClients.regionClients[int(regionBlock.Header().Location[0])-1].SendMinedBlock(context.Background(), sealed, true, true)
-
-				zoneExternalBlock, err := m.orderedBlockClients.primeClient.GetExternalBlockByHashAndContext(context.Background(), block.Header().Hash(), 2)
-				if zoneExternalBlock == nil {
-					log.Println("zoneExternalBlock is nil for difficulty context 0", "hash", newHead.Hash(), "err", err)
-					break
-				}
-				zoneBlock := types.NewBlockWithHeader(zoneExternalBlock.Header()).WithBody(zoneExternalBlock.Transactions(), zoneExternalBlock.Uncles())
-				// seal the zone block
-				sealed = zoneBlock.WithSeal(zoneBlock.Header())
-				m.orderedBlockClients.zoneClients[int(zoneBlock.Header().Location[0])-1][int(zoneBlock.Header().Location[1])-1].SendMinedBlock(context.Background(), sealed, true, true)
-
 				m.SendClientsExtBlock(difficultyContext, []int{1, 2}, block, receiptBlock)
 			} else if difficultyContext == 1 {
-				zoneExternalBlock, err := m.orderedBlockClients.regionClients[int(block.Header().Location[0])-1].GetExternalBlockByHashAndContext(context.Background(), block.Header().Hash(), 2)
-				if zoneExternalBlock == nil {
-					log.Println("zoneExternalBlock is nil for difficulty context 1", "hash", newHead.Hash(), "err", err)
-					break
-				}
-				zoneBlock := types.NewBlockWithHeader(zoneExternalBlock.Header()).WithBody(zoneExternalBlock.Transactions(), zoneExternalBlock.Uncles())
-
-				// seal the zone block
-				sealed := zoneBlock.WithSeal(zoneBlock.Header())
-				m.orderedBlockClients.zoneClients[int(zoneBlock.Header().Location[0])-1][int(zoneBlock.Header().Location[1])-1].SendMinedBlock(context.Background(), sealed, true, true)
-
 				m.SendClientsExtBlock(difficultyContext, []int{0, 2}, block, receiptBlock)
 			} else if difficultyContext == 2 {
 				m.SendClientsExtBlock(difficultyContext, []int{0, 1}, block, receiptBlock)
