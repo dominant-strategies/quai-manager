@@ -249,8 +249,6 @@ func main() {
 
 	go m.subscribeNewHead()
 
-	go m.subscribeMissingExternalBlock()
-
 	if config.Mine {
 		log.Println("Starting manager in location ", config.Location)
 
@@ -438,21 +436,6 @@ func (m *Manager) subscribeNewHeadClient(client *ethclient.Client, difficultyCon
 			} else if difficultyContext == 2 {
 				m.SendClientsExtBlock(difficultyContext, []int{0, 1}, block, receiptBlock)
 			}
-		}
-	}
-}
-
-func (m *Manager) subscribeMissingExternalBlock() {
-	// prime client
-	go m.subscribeMissingExternalBlockClient(m.orderedBlockClients.primeClient, []byte{0, 0})
-	// region clients
-	for i, regionClient := range m.orderedBlockClients.regionClients {
-		go m.subscribeMissingExternalBlockClient(regionClient, []byte{uint8(i + 1), 0})
-	}
-	// zone clients
-	for i, zoneClients := range m.orderedBlockClients.zoneClients {
-		for j, zoneClient := range zoneClients {
-			go m.subscribeMissingExternalBlockClient(zoneClient, []byte{uint8(i + 1), uint8(j + 1)})
 		}
 	}
 }
