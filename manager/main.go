@@ -684,7 +684,7 @@ func (m *Manager) resultLoop() error {
 		case header := <-m.resultCh:
 			m.lock.Lock()
 
-			context, err := m.GetDifficultyOrder(header)
+			context, err := m.engine.GetDifficultyOrder(header)
 			if err != nil {
 				log.Println("Block mined has an invalid order")
 			}
@@ -908,27 +908,6 @@ func findBestLocation(clients orderedBlockClients) []byte {
 	binary.LittleEndian.PutUint64(zoneBytes, uint64(zoneLocation))
 	// return location to config
 	return []byte{regionBytes[0], zoneBytes[0]}
-}
-
-// This function determines the difficulty order of a block
-func (m *Manager) GetDifficultyOrder(header *types.Header) (int, error) {
-	var difficulties []*big.Int
-
-	if header == nil {
-		return types.ContextDepth, errors.New("no header provided")
-	}
-
-	difficulties = header.Difficulty
-	blockhash := m.engine.SealHash(header)
-	for i, difficulty := range difficulties {
-		if difficulty != nil && big.NewInt(0).Cmp(difficulty) < 0 {
-			target := new(big.Int).Div(big2e256, difficulty)
-			if new(big.Int).SetBytes(blockhash.Bytes()).Cmp(target) <= 0 {
-				return i, nil
-			}
-		}
-	}
-	return -1, errors.New("block does not satisfy minimum difficulty")
 }
 
 // Checks for best location to mine every 10 minutes;
