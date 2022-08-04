@@ -21,7 +21,6 @@ import (
 	"github.com/spruce-solutions/go-quai/common"
 	"github.com/spruce-solutions/go-quai/common/hexutil"
 	"github.com/spruce-solutions/go-quai/consensus/blake3"
-	"github.com/spruce-solutions/go-quai/core"
 	"github.com/spruce-solutions/go-quai/core/types"
 	"github.com/spruce-solutions/go-quai/crypto"
 	"github.com/spruce-solutions/go-quai/ethclient"
@@ -31,6 +30,10 @@ import (
 const (
 	// resultQueueSize is the size of channel listening to sealing result.
 	resultQueueSize = 10
+)
+
+var (
+	big2e256 = new(big.Int).Exp(big.NewInt(2), big.NewInt(256), big.NewInt(0)) // 2^256
 )
 
 var exit = make(chan bool)
@@ -72,7 +75,7 @@ type Manager struct {
 	pendingZoneBlockCh   chan *types.ReceiptBlock
 
 	updatedCh chan *types.Header
-	resultCh  chan *types.HeaderBundle
+	resultCh  chan *types.Header
 	startCh   chan struct{}
 	exitCh    chan struct{}
 	doneCh    chan bool // channel for updating location
@@ -239,7 +242,7 @@ func main() {
 		pendingPrimeBlockCh:  make(chan *types.ReceiptBlock, resultQueueSize),
 		pendingRegionBlockCh: make(chan *types.ReceiptBlock, resultQueueSize),
 		pendingZoneBlockCh:   make(chan *types.ReceiptBlock, resultQueueSize),
-		resultCh:             make(chan *types.HeaderBundle, resultQueueSize),
+		resultCh:             make(chan *types.Header, resultQueueSize),
 		updatedCh:            make(chan *types.Header, resultQueueSize),
 		exitCh:               make(chan struct{}),
 		startCh:              make(chan struct{}, 1),
@@ -457,92 +460,6 @@ func checkNonceEmpty(commonHead *types.Header, oldChain, newChain []*types.Heade
 		}
 	}
 	return true
-}
-
-func (m *Manager) subscribeMissingExternalBlockClient(client *ethclient.Client, chain []byte) {
-	missingExternalBlockCh := make(chan core.MissingExternalBlock)
-	sub, err := client.SubscribeMissingExternalBlock(context.Background(), missingExternalBlockCh)
-	if err != nil {
-		log.Fatal("Failed to subscribe to missing external block notifications", err)
-	}
-	defer sub.Unsubscribe()
-
-	for {
-		select {
-		case missingExternalBlock := <-missingExternalBlockCh:
-			var client *ethclient.Client
-			var cxt *big.Int
-			// prime
-			if missingExternalBlock.Context == 0 {
-				client = m.orderedBlockClients.primeClient
-				cxt = big.NewInt(0)
-			}
-			// regions
-			if missingExternalBlock.Context == 1 {
-				client = m.orderedBlockClients.regionClients[int(missingExternalBlock.Location[0])-1]
-				cxt = big.NewInt(1)
-			}
-			// zones
-			if missingExternalBlock.Context == 2 {
-				client = m.orderedBlockClients.zoneClients[int(missingExternalBlock.Location[0])-1][int(missingExternalBlock.Location[1])-1]
-				cxt = big.NewInt(2)
-			}
-			block, _ := client.BlockByHash(context.Background(), missingExternalBlock.Hash)
-
-			var receipts []*types.Receipt
-			// if we find the block
-			if block != nil {
-				receiptBlock, err := client.GetBlockReceipts(context.Background(), missingExternalBlock.Hash)
-				if receiptBlock == nil {
-					log.Println("Failed to get receiptBlock in missing external block")
-				}
-				if err != nil {
-					log.Println("Failed to get block receipts from chain in ", missingExternalBlock.Location, err)
-					continue
-				}
-				receipts = receiptBlock.Receipts()
-				// if we don't find the block we have to reconstruct the block from the external block from a dominant chain
-			} else {
-				// check the prime to see if the external block for the given context exists
-				externalBlock, _ := m.orderedBlockClients.primeClient.GetExternalBlockByHashAndContext(context.Background(), missingExternalBlock.Hash, missingExternalBlock.Context)
-				// if we find the external block in prime, we stop or else we continue to look at the region
-				if externalBlock != nil {
-					block = types.NewBlockWithHeader(externalBlock.Header()).WithBody(externalBlock.Transactions(), externalBlock.Uncles())
-					receipts = externalBlock.Body().Receipts
-				} else {
-					// check the corresponding region chain to see if the external block for the given context exists
-					externalBlock, err = m.orderedBlockClients.regionClients[int(missingExternalBlock.Location[0])-1].GetExternalBlockByHashAndContext(context.Background(), missingExternalBlock.Hash, missingExternalBlock.Context)
-					// if we find the external block in the region we stop or there is currently no way to get the missing external block
-					if externalBlock != nil {
-						block = types.NewBlockWithHeader(externalBlock.Header()).WithBody(externalBlock.Transactions(), externalBlock.Uncles())
-						receipts = externalBlock.Body().Receipts
-					} else {
-						log.Println("Error getting external block", "location", missingExternalBlock.Location, "context", missingExternalBlock.Context, "hash", missingExternalBlock.Hash, "err", err)
-						continue
-					}
-				}
-			}
-			// Shouldn't hit this case but just in case the block is still not found and we haven't continued.
-			if block == nil {
-				continue
-			}
-
-			// sending the external Block back to the client
-			var extClient *ethclient.Client
-			if int(chain[0]) == 0 && int(chain[1]) == 0 {
-				extClient = m.orderedBlockClients.primeClient
-			} else if int(chain[0]) != 0 && int(chain[1]) == 0 {
-				extClient = m.orderedBlockClients.regionClients[chain[0]-1]
-			} else {
-				extClient = m.orderedBlockClients.zoneClients[chain[0]-1][chain[1]-1]
-			}
-
-			if err := extClient.SendExternalBlock(context.Background(), block, receipts, cxt); err != nil {
-				log.Println("Failed to send external block to chain in ", missingExternalBlock.Location, err)
-				continue
-			}
-		}
-	}
 }
 
 // PendingBlocks gets the latest block when we have received a new pending header. This will get the receipts,
@@ -764,21 +681,25 @@ func (m *Manager) SubmitHashRate() {
 func (m *Manager) resultLoop() error {
 	for {
 		select {
-		case bundle := <-m.resultCh:
+		case header := <-m.resultCh:
 			m.lock.Lock()
-			header := bundle.Header
 
-			if bundle.Context == 0 {
+			context, err := m.GetDifficultyOrder(header)
+			if err != nil {
+				log.Println("Block mined has an invalid order")
+			}
+
+			if context == 0 {
 				log.Println(color.Ize(color.Red, "PRIME block mined"))
 				log.Println("PRIME:", header.Number, header.Hash())
 			}
 
-			if bundle.Context == 1 {
+			if context == 1 {
 				log.Println(color.Ize(color.Yellow, "REGION block mined"))
 				log.Println("REGION:", header.Number, header.Hash())
 			}
 
-			if bundle.Context == 2 {
+			if context == 2 {
 				log.Println(color.Ize(color.Blue, "Zone block mined"))
 				log.Println("ZONE:", header.Number, header.Hash())
 			}
@@ -791,7 +712,7 @@ func (m *Manager) resultLoop() error {
 
 			// Check proper difficulty for which nodes to send block to
 			// Notify blocks to put in cache before assembling new block on node
-			if bundle.Context == 0 && header.Number[0] != nil {
+			if context == 0 && header.Number[0] != nil {
 				var wg sync.WaitGroup
 				wg.Add(1)
 				go m.SendClientsMinedExtBlock(0, []int{1, 2}, header, &wg)
@@ -810,7 +731,7 @@ func (m *Manager) resultLoop() error {
 			}
 
 			// If Region difficulty send to Region
-			if bundle.Context == 1 && header.Number[1] != nil {
+			if context == 1 && header.Number[1] != nil {
 				var wg sync.WaitGroup
 				wg.Add(1)
 				go m.SendClientsMinedExtBlock(1, []int{0, 2}, header, &wg)
@@ -825,7 +746,7 @@ func (m *Manager) resultLoop() error {
 			}
 
 			// If Zone difficulty send to Zone
-			if bundle.Context == 2 && header.Number[2] != nil {
+			if context == 2 && header.Number[2] != nil {
 				var wg sync.WaitGroup
 				wg.Add(1)
 				go m.SendClientsMinedExtBlock(2, []int{0, 1}, header, &wg)
@@ -987,6 +908,27 @@ func findBestLocation(clients orderedBlockClients) []byte {
 	binary.LittleEndian.PutUint64(zoneBytes, uint64(zoneLocation))
 	// return location to config
 	return []byte{regionBytes[0], zoneBytes[0]}
+}
+
+// This function determines the difficulty order of a block
+func (m *Manager) GetDifficultyOrder(header *types.Header) (int, error) {
+	var difficulties []*big.Int
+
+	if header == nil {
+		return types.ContextDepth, errors.New("no header provided")
+	}
+
+	difficulties = header.Difficulty
+	blockhash := m.engine.SealHash(header)
+	for i, difficulty := range difficulties {
+		if difficulty != nil && big.NewInt(0).Cmp(difficulty) < 0 {
+			target := new(big.Int).Div(big2e256, difficulty)
+			if new(big.Int).SetBytes(blockhash.Bytes()).Cmp(target) <= 0 {
+				return i, nil
+			}
+		}
+	}
+	return -1, errors.New("block does not satisfy minimum difficulty")
 }
 
 // Checks for best location to mine every 10 minutes;
