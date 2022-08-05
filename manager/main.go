@@ -250,8 +250,6 @@ func main() {
 		location:             config.Location,
 	}
 
-	go m.subscribeNewHead()
-
 	if config.Mine {
 		log.Println("Starting manager in location ", config.Location)
 
@@ -385,59 +383,6 @@ func (m *Manager) subscribePendingHeader(client *ethclient.Client, sliceIndex in
 				m.fetchPendingBlocks(client, sliceIndex)
 			case <-m.doneCh: // location updated and this routine needs to be stopped to start a new one
 				break
-			}
-		}
-	}
-}
-
-// subscribeNewHead passes new head blocks as external blocks to lower level chains.
-func (m *Manager) subscribeNewHead() {
-	// subscribe to the prime client at context 0
-	go m.subscribeNewHeadClient(m.orderedBlockClients.primeClient, 0)
-	// subscribe to the region clients
-	for i, blockClient := range m.orderedBlockClients.regionClients {
-		go m.subscribeNewHeadClient(blockClient, 1)
-		for _, zoneBlockClient := range m.orderedBlockClients.zoneClients[i] {
-			go m.subscribeNewHeadClient(zoneBlockClient, 2)
-		}
-	}
-}
-
-func (m *Manager) subscribeNewHeadClient(client *ethclient.Client, difficultyContext int) {
-	newHeadChannel := make(chan *types.Header, 1)
-	sub, err := client.SubscribeNewHead(context.Background(), newHeadChannel)
-	if err != nil {
-		log.Println("Failed to subscribe to the new head notifications ", err)
-	}
-	defer sub.Unsubscribe()
-
-	for {
-		select {
-		case newHead := <-newHeadChannel:
-			// log.Println("New Head Event:", "location", newHead.Location, "context", difficultyContext, "number", newHead.Number, "hash", newHead.Hash())
-
-			// get the block and receipt block
-			block, err := client.BlockByHash(context.Background(), newHead.Hash())
-			if err != nil {
-				log.Println("Failed to retrieve block for new head", "hash ", newHead.Hash(), "err", err)
-				continue
-			}
-
-			receiptBlock, receiptErr := client.GetBlockReceipts(context.Background(), newHead.Hash())
-			if receiptErr != nil {
-				log.Println("Failed to retrieve receipts for new head", "hash", newHead.Hash(), "err", receiptErr)
-				continue
-			}
-			if block.Header().Location == nil || len(block.Header().Location) == 0 {
-				continue
-			}
-
-			if difficultyContext == 0 {
-				m.SendClientsExtBlock(difficultyContext, []int{1, 2}, block, receiptBlock)
-			} else if difficultyContext == 1 {
-				m.SendClientsExtBlock(difficultyContext, []int{0, 2}, block, receiptBlock)
-			} else if difficultyContext == 2 {
-				m.SendClientsExtBlock(difficultyContext, []int{0, 1}, block, receiptBlock)
 			}
 		}
 	}
@@ -715,13 +660,6 @@ func (m *Manager) resultLoop() error {
 			if context == 0 && header.Number[0] != nil {
 				var wg sync.WaitGroup
 				wg.Add(1)
-				go m.SendClientsMinedExtBlock(0, []int{1, 2}, header, &wg)
-				wg.Add(1)
-				go m.SendClientsMinedExtBlock(1, []int{0, 2}, header, &wg)
-				wg.Add(1)
-				go m.SendClientsMinedExtBlock(2, []int{0, 1}, header, &wg)
-				wg.Wait()
-				wg.Add(1)
 				go m.SendMinedBlock(2, header, &wg)
 				wg.Add(1)
 				go m.SendMinedBlock(1, header, &wg)
@@ -734,11 +672,6 @@ func (m *Manager) resultLoop() error {
 			if context == 1 && header.Number[1] != nil {
 				var wg sync.WaitGroup
 				wg.Add(1)
-				go m.SendClientsMinedExtBlock(1, []int{0, 2}, header, &wg)
-				wg.Add(1)
-				go m.SendClientsMinedExtBlock(2, []int{0, 1}, header, &wg)
-				wg.Wait()
-				wg.Add(1)
 				go m.SendMinedBlock(2, header, &wg)
 				wg.Add(1)
 				go m.SendMinedBlock(1, header, &wg)
@@ -748,9 +681,6 @@ func (m *Manager) resultLoop() error {
 			// If Zone difficulty send to Zone
 			if context == 2 && header.Number[2] != nil {
 				var wg sync.WaitGroup
-				wg.Add(1)
-				go m.SendClientsMinedExtBlock(2, []int{0, 1}, header, &wg)
-				wg.Wait()
 				wg.Add(1)
 				go m.SendMinedBlock(2, header, &wg)
 				wg.Wait()
@@ -779,55 +709,6 @@ func (m *Manager) allChainsOnline() bool {
 		}
 	}
 	return true
-}
-
-// SendClientsMinedExtBlock takes in the mined block and calls the pending blocks to send to the clients.
-func (m *Manager) SendClientsMinedExtBlock(mined int, externalContexts []int, header *types.Header, wg *sync.WaitGroup) {
-	receiptBlock := m.pendingBlocks[mined]
-	if receiptBlock != nil {
-		block := types.NewBlockWithHeader(header).WithBody(receiptBlock.Transactions(), receiptBlock.Uncles())
-		m.SendClientsExtBlock(mined, externalContexts, block, receiptBlock)
-	}
-	defer wg.Done()
-}
-
-// SendClientsExtBlock takes in the mined block and the contexts of the mining slice to send the external block to.
-// ex. mined 2, externalContexts []int{0, 1} will send the Zone external block to Prime and Region.
-func (m *Manager) SendClientsExtBlock(mined int, externalContexts []int, block *types.Block, receiptBlock *types.ReceiptBlock) {
-	// first send the external block to the mining chains
-	blockLocation := block.Header().Location
-	if blockLocation == nil || len(blockLocation) == 0 {
-		return
-	}
-
-	for i := 0; i < len(externalContexts); i++ {
-		if externalContexts[i] == 0 && m.orderedBlockClients.primeAvailable {
-			m.orderedBlockClients.primeClient.SendExternalBlock(context.Background(), block, receiptBlock.Receipts(), big.NewInt(int64(mined)))
-		}
-		if externalContexts[i] == 1 && m.orderedBlockClients.regionsAvailable[blockLocation[0]-1] {
-			m.orderedBlockClients.regionClients[blockLocation[0]-1].SendExternalBlock(context.Background(), block, receiptBlock.Receipts(), big.NewInt(int64(mined)))
-		}
-		if externalContexts[i] == 2 && m.orderedBlockClients.zonesAvailable[blockLocation[0]-1][blockLocation[1]-1] {
-			m.orderedBlockClients.zoneClients[blockLocation[0]-1][blockLocation[1]-1].SendExternalBlock(context.Background(), block, receiptBlock.Receipts(), big.NewInt(int64(mined)))
-		}
-	}
-	// sending the external blocks to chains other than the mining chains
-	for i, blockClient := range m.orderedBlockClients.regionClients {
-		miningRegion := int(blockLocation[0])-1 == i
-		if !miningRegion {
-			blockClient.SendExternalBlock(context.Background(), block, receiptBlock.Receipts(), big.NewInt(int64(mined)))
-		}
-	}
-
-	for i := range m.orderedBlockClients.zoneClients {
-		for j, blockClient := range m.orderedBlockClients.zoneClients[i] {
-			miningZone := int(blockLocation[0])-1 == i && int(blockLocation[1])-1 == j
-			if !miningZone {
-				blockClient.SendExternalBlock(context.Background(), block, receiptBlock.Receipts(), big.NewInt(int64(mined)))
-			}
-		}
-	}
-
 }
 
 // SendMinedBlock sends the mined block to its mining client with the transactions, uncles, and receipts.
