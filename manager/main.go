@@ -488,22 +488,24 @@ func (m *Manager) updateCombinedHeader(header *types.Header, i int) {
 		time = m.combinedHeader.Time
 	}
 
-	if bytes.Equal(m.location, header.Location) {
-		switch i {
-		case params.PRIME:
-			if m.combinedHeader.Number[i].Cmp(header.Number[i]) < 0 {
-				m.pendingUpdate[params.PRIME] = false
-				m.pendingUpdate[params.REGION] = true
-				m.pendingUpdate[params.ZONE] = true
-			}
-		case params.REGION:
-			if m.combinedHeader.Number[i].Cmp(header.Number[i]) < 0 {
-				m.pendingUpdate[params.REGION] = false
-				m.pendingUpdate[params.ZONE] = true
-			}
-		case params.ZONE:
-			if m.combinedHeader.Number[i].Cmp(header.Number[i]) < 0 {
-				m.pendingUpdate[params.ZONE] = false
+	if m.combinedHeader.Number[i] != nil {
+		if bytes.Equal(m.location, header.Location) {
+			switch i {
+			case params.PRIME:
+				if m.combinedHeader.Number[i].Cmp(header.Number[i]) < 0 {
+					m.pendingUpdate[params.PRIME] = false
+					m.pendingUpdate[params.REGION] = true
+					m.pendingUpdate[params.ZONE] = true
+				}
+			case params.REGION:
+				if m.combinedHeader.Number[i].Cmp(header.Number[i]) < 0 {
+					m.pendingUpdate[params.REGION] = false
+					m.pendingUpdate[params.ZONE] = true
+				}
+			case params.ZONE:
+				if m.combinedHeader.Number[i].Cmp(header.Number[i]) < 0 {
+					m.pendingUpdate[params.ZONE] = false
+				}
 			}
 		}
 	}
