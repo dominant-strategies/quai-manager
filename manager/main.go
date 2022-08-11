@@ -24,6 +24,7 @@ import (
 	"github.com/spruce-solutions/go-quai/core/types"
 	"github.com/spruce-solutions/go-quai/crypto"
 	"github.com/spruce-solutions/go-quai/ethclient"
+	"github.com/spruce-solutions/go-quai/params"
 	"github.com/spruce-solutions/quai-manager/manager/util"
 )
 
@@ -69,6 +70,8 @@ type Manager struct {
 	pendingBlocks       []*types.ReceiptBlock // Current pending blocks of the manager
 	lock                sync.Mutex
 	location            []byte
+
+	pendingUpdate []bool
 
 	pendingPrimeBlockCh  chan *types.ReceiptBlock
 	pendingRegionBlockCh chan *types.ReceiptBlock
@@ -239,6 +242,7 @@ func main() {
 		orderedBlockClients:  allClients,
 		combinedHeader:       header,
 		pendingBlocks:        make([]*types.ReceiptBlock, 3),
+		pendingUpdate:        make([]bool, 3),
 		pendingPrimeBlockCh:  make(chan *types.ReceiptBlock, resultQueueSize),
 		pendingRegionBlockCh: make(chan *types.ReceiptBlock, resultQueueSize),
 		pendingZoneBlockCh:   make(chan *types.ReceiptBlock, resultQueueSize),
@@ -483,6 +487,27 @@ func (m *Manager) updateCombinedHeader(header *types.Header, i int) {
 	if time <= m.combinedHeader.Time {
 		time = m.combinedHeader.Time
 	}
+
+	if bytes.Equal(m.location, header.Location) {
+		switch i {
+		case params.PRIME:
+			if m.combinedHeader.Number[i].Cmp(header.Number[i]) < 0 {
+				m.pendingUpdate[params.PRIME] = false
+				m.pendingUpdate[params.REGION] = true
+				m.pendingUpdate[params.ZONE] = true
+			}
+		case params.REGION:
+			if m.combinedHeader.Number[i].Cmp(header.Number[i]) < 0 {
+				m.pendingUpdate[params.REGION] = false
+				m.pendingUpdate[params.ZONE] = true
+			}
+		case params.ZONE:
+			if m.combinedHeader.Number[i].Cmp(header.Number[i]) < 0 {
+				m.pendingUpdate[params.ZONE] = false
+			}
+		}
+	}
+
 	m.combinedHeader.ParentHash[i] = header.ParentHash[i]
 	m.combinedHeader.UncleHash[i] = header.UncleHash[i]
 	m.combinedHeader.Number[i] = header.Number[i]
@@ -587,7 +612,7 @@ func (m *Manager) miningLoop() error {
 			m.lock.Unlock()
 
 			headerNull := m.headerNullCheck()
-			if headerNull == nil {
+			if headerNull == nil && !m.pendingUpdate[0] && !m.pendingUpdate[1] && !m.pendingUpdate[2] {
 				log.Println("Starting to mine:  ", header.Number, "location", m.location, "difficulty", header.Difficulty)
 				if err := m.engine.SealHeader(header, m.resultCh, stopCh); err != nil {
 					log.Println("Block sealing failed", "err", err)
