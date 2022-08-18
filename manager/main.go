@@ -4,7 +4,6 @@ import (
 	"bytes"
 	"context"
 	"encoding/binary"
-	"errors"
 	"fmt"
 	"log"
 	"math"
@@ -24,7 +23,6 @@ import (
 	"github.com/spruce-solutions/go-quai/core/types"
 	"github.com/spruce-solutions/go-quai/crypto"
 	"github.com/spruce-solutions/go-quai/ethclient"
-	"github.com/spruce-solutions/go-quai/params"
 	"github.com/spruce-solutions/quai-manager/manager/util"
 )
 
@@ -71,11 +69,7 @@ type Manager struct {
 	lock                sync.Mutex
 	location            []byte
 
-	pendingUpdate []bool
-
-	pendingPrimeBlockCh  chan *types.ReceiptBlock
-	pendingRegionBlockCh chan *types.ReceiptBlock
-	pendingZoneBlockCh   chan *types.ReceiptBlock
+	pendingZoneBlockCh chan *types.ReceiptBlock
 
 	updatedCh chan *types.Header
 	resultCh  chan *types.Header
@@ -238,20 +232,17 @@ func main() {
 	}
 
 	m := &Manager{
-		engine:               blake3Engine,
-		orderedBlockClients:  allClients,
-		combinedHeader:       header,
-		pendingBlocks:        make([]*types.ReceiptBlock, 3),
-		pendingUpdate:        make([]bool, 3),
-		pendingPrimeBlockCh:  make(chan *types.ReceiptBlock, resultQueueSize),
-		pendingRegionBlockCh: make(chan *types.ReceiptBlock, resultQueueSize),
-		pendingZoneBlockCh:   make(chan *types.ReceiptBlock, resultQueueSize),
-		resultCh:             make(chan *types.Header, resultQueueSize),
-		updatedCh:            make(chan *types.Header, resultQueueSize),
-		exitCh:               make(chan struct{}),
-		startCh:              make(chan struct{}, 1),
-		doneCh:               make(chan bool),
-		location:             config.Location,
+		engine:              blake3Engine,
+		orderedBlockClients: allClients,
+		combinedHeader:      header,
+		pendingBlocks:       make([]*types.ReceiptBlock, 3),
+		pendingZoneBlockCh:  make(chan *types.ReceiptBlock, resultQueueSize),
+		resultCh:            make(chan *types.Header, resultQueueSize),
+		updatedCh:           make(chan *types.Header, resultQueueSize),
+		exitCh:              make(chan struct{}),
+		startCh:             make(chan struct{}, 1),
+		doneCh:              make(chan bool),
+		location:            config.Location,
 	}
 
 	if config.Mine {
@@ -470,10 +461,6 @@ func (m *Manager) fetchPendingBlocks(client *ethclient.Client, sliceIndex int) {
 
 	m.lock.Unlock()
 	switch sliceIndex {
-	case 0:
-		m.pendingPrimeBlockCh <- receiptBlock
-	case 1:
-		m.pendingRegionBlockCh <- receiptBlock
 	case 2:
 		m.pendingZoneBlockCh <- receiptBlock
 	}
@@ -486,28 +473,6 @@ func (m *Manager) updateCombinedHeader(header *types.Header, i int) {
 	time := header.Time
 	if time <= m.combinedHeader.Time {
 		time = m.combinedHeader.Time
-	}
-
-	if m.combinedHeader.Number[i] != nil {
-		if bytes.Equal(m.location, header.Location) {
-			switch i {
-			case params.PRIME:
-				if m.combinedHeader.Number[i].Cmp(header.Number[i]) < 0 {
-					m.pendingUpdate[params.PRIME] = false
-					m.pendingUpdate[params.REGION] = true
-					m.pendingUpdate[params.ZONE] = true
-				}
-			case params.REGION:
-				if m.combinedHeader.Number[i].Cmp(header.Number[i]) < 0 {
-					m.pendingUpdate[params.REGION] = false
-					m.pendingUpdate[params.ZONE] = true
-				}
-			case params.ZONE:
-				if m.combinedHeader.Number[i].Cmp(header.Number[i]) < 0 {
-					m.pendingUpdate[params.ZONE] = false
-				}
-			}
-		}
 	}
 
 	m.combinedHeader.ParentHash[i] = header.ParentHash[i]
@@ -535,28 +500,10 @@ func (m *Manager) updateCombinedHeader(header *types.Header, i int) {
 func (m *Manager) loopGlobalBlock() error {
 	for {
 		select {
-		case block := <-m.pendingPrimeBlockCh:
-			header := block.Header()
-			m.updateCombinedHeader(header, 0)
-			m.pendingBlocks[0] = block
-			header.Nonce = types.BlockNonce{}
-			select {
-			case m.updatedCh <- m.combinedHeader:
-			default:
-				log.Println("Sealing result is not read by miner", "mode", "fake", "sealhash")
-			}
-		case block := <-m.pendingRegionBlockCh:
-			header := block.Header()
-			m.updateCombinedHeader(header, 1)
-			m.pendingBlocks[1] = block
-			header.Nonce = types.BlockNonce{}
-			select {
-			case m.updatedCh <- m.combinedHeader:
-			default:
-				log.Println("Sealing result is not read by miner", "mode", "fake", "sealhash")
-			}
 		case block := <-m.pendingZoneBlockCh:
 			header := block.Header()
+			m.updateCombinedHeader(header, 0)
+			m.updateCombinedHeader(header, 1)
 			m.updateCombinedHeader(header, 2)
 			m.pendingBlocks[2] = block
 			header.Nonce = types.BlockNonce{}
@@ -567,24 +514,6 @@ func (m *Manager) loopGlobalBlock() error {
 			}
 		}
 	}
-}
-
-// check if the header is null. If so, don't start mining.
-func (m *Manager) headerNullCheck() error {
-	err := errors.New("header has nil value, cannot continue with mining")
-	if m.combinedHeader.Number[0] == nil {
-		log.Println("Waiting to retrieve Prime header information...")
-		return err
-	}
-	if m.combinedHeader.Number[1] == nil {
-		log.Println("Waiting to retrieve Region header information...")
-		return err
-	}
-	if m.combinedHeader.Number[2] == nil {
-		log.Println("Waiting to retrieve Zone header information...")
-		return err
-	}
-	return nil
 }
 
 // miningLoop iterates on a new header and passes the result to m.resultCh. The result is called within the method.
@@ -613,12 +542,9 @@ func (m *Manager) miningLoop() error {
 			m.lock.Lock()
 			m.lock.Unlock()
 
-			headerNull := m.headerNullCheck()
-			if headerNull == nil && !m.pendingUpdate[0] && !m.pendingUpdate[1] && !m.pendingUpdate[2] {
-				log.Println("Starting to mine:  ", header.Number, "location", m.location, "difficulty", header.Difficulty)
-				if err := m.engine.SealHeader(header, m.resultCh, stopCh); err != nil {
-					log.Println("Block sealing failed", "err", err)
-				}
+			log.Println("Starting to mine:  ", header.Number, "location", m.location, "difficulty", header.Difficulty)
+			if err := m.engine.SealHeader(header, m.resultCh, stopCh); err != nil {
+				log.Println("Block sealing failed", "err", err)
 			}
 		}
 	}
