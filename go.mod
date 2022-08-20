@@ -2,6 +2,7 @@ module github.com/spruce-solutions/quai-manager
 
 go 1.16
 
+replace github.com/spruce-solutions/go-quai => /Users/shreekara/Desktop/quai/go-quai
 require (
 	github.com/TwiN/go-color v1.1.0 // indirect
 	github.com/edsrzf/mmap-go v1.0.0 // indirect
