@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"encoding/binary"
+	"errors"
 	"fmt"
 	"log"
 	"math"
@@ -352,6 +353,24 @@ func (m *Manager) subscribePendingHeader(client *ethclient.Client, sliceIndex in
 	}
 }
 
+// check if the header is null. If so, don't start mining.
+func (m *Manager) headerNullCheck(header *types.Header) error {
+	err := errors.New("header has nil value, cannot continue with mining")
+	if header.Number[0] == nil {
+		log.Println("Waiting to retrieve Prime header information...")
+		return err
+	}
+	if header.Number[1] == nil {
+		log.Println("Waiting to retrieve Region header information...")
+		return err
+	}
+	if header.Number[2] == nil {
+		log.Println("Waiting to retrieve Zone header information...")
+		return err
+	}
+	return nil
+}
+
 // miningLoop iterates on a new header and passes the result to m.resultCh. The result is called within the method.
 func (m *Manager) miningLoop() error {
 	var (
@@ -380,9 +399,12 @@ func (m *Manager) miningLoop() error {
 
 			fmt.Println(header.Root[0])
 
-			log.Println("Starting to mine:  ", header.Number, "location", m.location, "difficulty", header.Difficulty)
-			if err := m.engine.SealHeader(header, m.resultCh, stopCh); err != nil {
-				log.Println("Block sealing failed", "err", err)
+			headerNull := m.headerNullCheck(header)
+			if headerNull == nil {
+				log.Println("Starting to mine:  ", header.Number, "location", m.location, "difficulty", header.Difficulty)
+				if err := m.engine.SealHeader(header, m.resultCh, stopCh); err != nil {
+					log.Println("Block sealing failed", "err", err)
+				}
 			}
 		}
 	}
