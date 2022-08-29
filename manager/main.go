@@ -1,6 +1,7 @@
 package main
 
 import (
+	"bytes"
 	"context"
 	"encoding/binary"
 	"errors"
@@ -223,8 +224,8 @@ func main() {
 		log.Println("Starting manager in location ", config.Location)
 
 		// subscribing to the zone pending header update.
-		if m.orderedBlockClients.zonesAvailable[m.location[0]-1][m.location[1]-1] && checkConnection(m.orderedBlockClients.zoneClients[m.location[0]-1][m.location[1]-1]) {
-			go m.subscribePendingHeader(m.orderedBlockClients.zoneClients[m.location[0]-1][m.location[1]-1], 2)
+		if m.orderedBlockClients.primeAvailable && checkConnection(m.orderedBlockClients.primeClient) {
+			go m.subscribePendingHeader(m.orderedBlockClients.primeClient, 2)
 		}
 
 		m.subscribeSliceHeaderRoots()
@@ -344,7 +345,11 @@ func (m *Manager) subscribePendingHeader(client *ethclient.Client, sliceIndex in
 		for {
 			select {
 			case m.header = <-header:
-				m.updatedCh <- m.header
+				fmt.Println("header location on receiving: ", m.header.Location)
+				// only mine if the manager location is the same as the header location received.
+				if bytes.Equal(m.header.Location, m.location) {
+					m.updatedCh <- m.header
+				}
 				// New head arrived, send if for state update if there's none running
 			case <-m.doneCh: // location updated and this routine needs to be stopped to start a new one
 				break
@@ -397,8 +402,7 @@ func (m *Manager) miningLoop() error {
 			m.lock.Lock()
 			m.lock.Unlock()
 
-			fmt.Println(header.Root[0])
-
+			fmt.Println("header location", header.Location)
 			headerNull := m.headerNullCheck(header)
 			if headerNull == nil {
 				log.Println("Starting to mine:  ", header.Number, "location", m.location, "difficulty", header.Difficulty)
