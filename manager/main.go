@@ -1,7 +1,6 @@
 package main
 
 import (
-	"bytes"
 	"context"
 	"encoding/binary"
 	"errors"
@@ -223,9 +222,11 @@ func main() {
 	if config.Mine {
 		log.Println("Starting manager in location ", config.Location)
 
+		m.fetchPendingHeader(allClients.primeClient)
+
 		// subscribing to the zone pending header update.
-		if m.orderedBlockClients.primeAvailable && checkConnection(m.orderedBlockClients.primeClient) {
-			go m.subscribePendingHeader(m.orderedBlockClients.primeClient, 2)
+		if m.orderedBlockClients.zonesAvailable[m.location[0]-1][m.location[1]-1] && checkConnection(m.orderedBlockClients.zoneClients[m.location[0]-1][m.location[1]-1]) {
+			go m.subscribePendingHeader(m.orderedBlockClients.zoneClients[m.location[0]-1][m.location[1]-1], 2)
 		}
 
 		m.subscribeSliceHeaderRoots()
@@ -345,17 +346,58 @@ func (m *Manager) subscribePendingHeader(client *ethclient.Client, sliceIndex in
 		for {
 			select {
 			case m.header = <-header:
-				fmt.Println("header location on receiving: ", m.header.Location)
-				// only mine if the manager location is the same as the header location received.
-				if bytes.Equal(m.header.Location, m.location) {
-					m.updatedCh <- m.header
-				}
+				m.updatedCh <- m.header
 				// New head arrived, send if for state update if there's none running
 			case <-m.doneCh: // location updated and this routine needs to be stopped to start a new one
 				break
 			}
 		}
 	}
+}
+
+// PendingBlocks gets the latest block when we have received a new pending header. This will get the receipts,
+// transactions, and uncles to be stored during mining.
+func (m *Manager) fetchPendingHeader(client *ethclient.Client) {
+	var header *types.Header
+	var err error
+
+	m.lock.Lock()
+	header, err = client.GetPendingHeaderByLocation(context.Background(), m.location)
+
+	// retrying for 5 times if pending block not found
+	if err != nil || header == nil {
+		log.Println("Pending block not found error:", err)
+		found := false
+		attempts := 0
+		lastUpdatedAt := time.Now()
+
+		for !found {
+			if time.Now().Sub(lastUpdatedAt).Hours() >= 12 {
+				attempts = 0
+			}
+
+			header, err = client.GetPendingHeaderByLocation(context.Background(), m.location)
+			if err == nil && header != nil {
+				break
+			}
+			lastUpdatedAt = time.Now()
+			attempts += 1
+
+			// exponential back-off implemented
+			delaySecs := int64(math.Floor((math.Pow(2, float64(attempts)) - 1) * 0.5))
+			if delaySecs > exponentialBackoffCeilingSecs {
+				delaySecs = exponentialBackoffCeilingSecs
+			}
+
+			// should only get here if the ffmpeg record stream process dies
+			fmt.Printf("This is attempt %d to fetch pending block. Waiting %d seconds and then retrying...\n", attempts, delaySecs)
+
+			time.Sleep(time.Duration(delaySecs) * time.Second)
+		}
+	}
+
+	m.lock.Unlock()
+	m.updatedCh <- header
 }
 
 // check if the header is null. If so, don't start mining.
@@ -402,7 +444,8 @@ func (m *Manager) miningLoop() error {
 			m.lock.Lock()
 			m.lock.Unlock()
 
-			fmt.Println("header location", header.Location)
+			fmt.Println(header.Root[0])
+
 			headerNull := m.headerNullCheck(header)
 			if headerNull == nil {
 				log.Println("Starting to mine:  ", header.Number, "location", m.location, "difficulty", header.Difficulty)
