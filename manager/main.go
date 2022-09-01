@@ -222,11 +222,12 @@ func main() {
 	if config.Mine {
 		log.Println("Starting manager in location ", config.Location)
 
-		m.fetchPendingHeader(allClients.primeClient)
+		m.fetchPendingHeader(m.orderedBlockClients.zoneClients[m.location[0]-1][m.location[1]-1])
 
 		// subscribing to the zone pending header update.
 		if m.orderedBlockClients.zonesAvailable[m.location[0]-1][m.location[1]-1] && checkConnection(m.orderedBlockClients.zoneClients[m.location[0]-1][m.location[1]-1]) {
 			go m.subscribePendingHeader(m.orderedBlockClients.zoneClients[m.location[0]-1][m.location[1]-1], 2)
+			go m.subscribePendingHeader(m.orderedBlockClients.primeClient, 2)
 		}
 
 		m.subscribeSliceHeaderRoots()
@@ -362,7 +363,7 @@ func (m *Manager) fetchPendingHeader(client *ethclient.Client) {
 	var err error
 
 	m.lock.Lock()
-	header, err = client.GetPendingHeaderByLocation(context.Background(), m.location)
+	header, err = client.GetPendingHeader(context.Background())
 
 	// retrying for 5 times if pending block not found
 	if err != nil || header == nil {
@@ -376,7 +377,7 @@ func (m *Manager) fetchPendingHeader(client *ethclient.Client) {
 				attempts = 0
 			}
 
-			header, err = client.GetPendingHeaderByLocation(context.Background(), m.location)
+			header, err = client.GetPendingHeader(context.Background())
 			if err == nil && header != nil {
 				break
 			}
