@@ -225,10 +225,7 @@ func main() {
 		m.fetchPendingHeader(m.orderedBlockClients.zoneClients[m.location[0]-1][m.location[1]-1])
 
 		// subscribing to the zone pending header update.
-		if m.orderedBlockClients.zonesAvailable[m.location[0]-1][m.location[1]-1] && checkConnection(m.orderedBlockClients.zoneClients[m.location[0]-1][m.location[1]-1]) {
-			go m.subscribePendingHeader(m.orderedBlockClients.zoneClients[m.location[0]-1][m.location[1]-1], 2)
-			go m.subscribePendingHeader(m.orderedBlockClients.primeClient, 2)
-		}
+		m.subscribeSlicePendingHeader()
 
 		m.subscribeSliceHeaderRoots()
 
@@ -364,6 +361,7 @@ func (m *Manager) fetchPendingHeader(client *ethclient.Client) {
 
 	m.lock.Lock()
 	header, err = client.GetPendingHeader(context.Background())
+	log.Println("Fetched pending header: ", header)
 
 	// retrying for 5 times if pending block not found
 	if err != nil || header == nil {
@@ -602,6 +600,12 @@ func (m *Manager) subscribeSliceHeaderRoots() {
 	go m.subscribeHeaderRoots(m.orderedBlockClients.primeClient, 0)
 	go m.subscribeHeaderRoots(m.orderedBlockClients.regionClients[m.location[0]-1], 1)
 	go m.subscribeHeaderRoots(m.orderedBlockClients.zoneClients[m.location[0]-1][m.location[1]-1], 2)
+}
+
+func (m *Manager) subscribeSlicePendingHeader() {
+	go m.subscribePendingHeader(m.orderedBlockClients.primeClient, 0)
+	go m.subscribePendingHeader(m.orderedBlockClients.regionClients[m.location[0]-1], 1)
+	go m.subscribePendingHeader(m.orderedBlockClients.zoneClients[m.location[0]-1][m.location[1]-1], 2)
 }
 
 func (m *Manager) subscribeHeaderRoots(client *ethclient.Client, index int) {
