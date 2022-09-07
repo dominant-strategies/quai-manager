@@ -1,6 +1,7 @@
 package main
 
 import (
+	"bytes"
 	"context"
 	"encoding/binary"
 	"errors"
@@ -443,8 +444,10 @@ func (m *Manager) miningLoop() error {
 			m.lock.Lock()
 			m.lock.Unlock()
 
-			fmt.Println(header.Root[0])
-
+			if !bytes.Equal(header.Location, m.location) {
+				continue
+			}
+			// header.Location = m.location
 			headerNull := m.headerNullCheck(header)
 			if headerNull == nil {
 				log.Println("Starting to mine:  ", header.Number, "location", m.location, "difficulty", header.Difficulty)
