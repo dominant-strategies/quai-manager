@@ -1,6 +1,7 @@
 package main
 
 import (
+	"bytes"
 	"context"
 	"encoding/binary"
 	"errors"
@@ -344,6 +345,7 @@ func (m *Manager) subscribePendingHeader(client *ethclient.Client, sliceIndex in
 		for {
 			select {
 			case m.header = <-header:
+				log.Println("New header arrived from: ", sliceIndex, m.header.Number)
 				m.updatedCh <- m.header
 				// New head arrived, send if for state update if there's none running
 			case <-m.doneCh: // location updated and this routine needs to be stopped to start a new one
@@ -443,8 +445,9 @@ func (m *Manager) miningLoop() error {
 			m.lock.Lock()
 			m.lock.Unlock()
 
-			fmt.Println(header.Root[0])
-
+			if !bytes.Equal(header.Location, m.location) {
+				continue
+			}
 			headerNull := m.headerNullCheck(header)
 			if headerNull == nil {
 				log.Println("Starting to mine:  ", header.Number, "location", m.location, "difficulty", header.Difficulty)
@@ -555,17 +558,11 @@ func (m *Manager) allChainsOnline() bool {
 	if !checkConnection(m.orderedBlockClients.primeClient) {
 		return false
 	}
-	for _, blockClient := range m.orderedBlockClients.regionClients {
-		if !checkConnection(blockClient) {
-			return false
-		}
+	if !checkConnection(m.orderedBlockClients.regionClients[m.location[0]-1]) {
+		return false
 	}
-	for i := range m.orderedBlockClients.zoneClients {
-		for _, blockClient := range m.orderedBlockClients.zoneClients[i] {
-			if !checkConnection(blockClient) {
-				return false
-			}
-		}
+	if !checkConnection(m.orderedBlockClients.zoneClients[m.location[0]-1][m.location[1]-1]) {
+		return false
 	}
 	return true
 }
@@ -586,7 +583,7 @@ func (m *Manager) SendMinedHeader(mined int, header *types.Header, wg *sync.Wait
 
 // Checks if a connection is still there on orderedBlockClient.chainAvailable
 func checkConnection(client *ethclient.Client) bool {
-	_, err := client.HeaderByNumber(context.Background(), nil)
+	_, err := client.HeaderByNumber(context.Background(), big.NewInt(-1))
 	if err != nil {
 		log.Println("Error: connection lost")
 		log.Println(err)
@@ -622,6 +619,7 @@ func (m *Manager) subscribeHeaderRoots(client *ethclient.Client, index int) {
 	for {
 		select {
 		case headerRoots := <-headerRoots:
+			m.lock.Lock()
 			m.header.Root[index] = headerRoots.StateRoot
 			m.header.TxHash[index] = headerRoots.TxsRoot
 			m.header.ReceiptHash[index] = headerRoots.ReceiptsRoot
@@ -629,6 +627,7 @@ func (m *Manager) subscribeHeaderRoots(client *ethclient.Client, index int) {
 			fmt.Println("Received a header root update from index: ", index, m.header.Root[0], headerRoots.StateRoot)
 			// send the updated header roots to mine
 			m.updatedCh <- m.header
+			m.lock.Unlock()
 		case <-m.doneCh: // location updated and this routine needs to be stopped to start a new one
 			break
 		}
