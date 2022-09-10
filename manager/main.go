@@ -73,6 +73,8 @@ type Manager struct {
 	startCh   chan struct{}
 	exitCh    chan struct{}
 	doneCh    chan bool // channel for updating location
+
+	previousNumber []*big.Int
 }
 
 // Block struct to hold all Client fields.
@@ -218,7 +220,10 @@ func main() {
 		startCh:             make(chan struct{}, 1),
 		doneCh:              make(chan bool),
 		location:            config.Location,
+		previousNumber:      make([]*big.Int, 3),
 	}
+
+	m.previousNumber = []*big.Int{big.NewInt(0), big.NewInt(0), big.NewInt(0)}
 
 	if config.Mine {
 		log.Println("Starting manager in location ", config.Location)
@@ -345,7 +350,6 @@ func (m *Manager) subscribePendingHeader(client *ethclient.Client, sliceIndex in
 		for {
 			select {
 			case m.header = <-header:
-				log.Println("New header arrived from: ", sliceIndex, m.header.Number)
 				m.updatedCh <- m.header
 				// New head arrived, send if for state update if there's none running
 			case <-m.doneCh: // location updated and this routine needs to be stopped to start a new one
@@ -450,7 +454,18 @@ func (m *Manager) miningLoop() error {
 			}
 			headerNull := m.headerNullCheck(header)
 			if headerNull == nil {
-				log.Println("Starting to mine:  ", header.Number, "location", m.location, "difficulty", header.Difficulty)
+				if header.Number[0].Cmp(m.previousNumber[0]) != 0 || header.Number[1].Cmp(m.previousNumber[1]) != 0 || header.Number[2].Cmp(m.previousNumber[2]) != 0 {
+					if header.Number[0].Cmp(m.previousNumber[0]) != 0 {
+						log.Println("Mining Block:  ", fmt.Sprintf("[%s %s %s]", color.Ize(color.Red, fmt.Sprint(header.Number[0])), header.Number[1].String(), header.Number[2].String()), "location", m.location, "difficulty", header.Difficulty)
+					} else if header.Number[1].Cmp(m.previousNumber[1]) != 0 {
+						log.Println("Mining Block:  ", fmt.Sprintf("[%s %s %s]", header.Number[0].String(), color.Ize(color.Yellow, fmt.Sprint(header.Number[1])), header.Number[2].String()), "location", m.location, "difficulty", header.Difficulty)
+					} else {
+						log.Println("Mining Block:  ", header.Number, "location", m.location, "difficulty", header.Difficulty)
+
+					}
+					m.previousNumber = header.Number
+				}
+
 				if err := m.engine.SealHeader(header, m.resultCh, stopCh); err != nil {
 					log.Println("Block sealing failed", "err", err)
 				}
@@ -476,7 +491,7 @@ func (m *Manager) SubmitHashRate() {
 			case <-ticker.C:
 				hashRate := m.engine.Hashrate()
 				if hashRate != null {
-					log.Println("Quai Miner - current hashes per second: ", hashRate)
+					log.Println("Quai Miner  :   Hashes per second: ", hashRate)
 					m.engine.SubmitHashrate(hexutil.Uint64(hashRate), id)
 				}
 			}
@@ -497,18 +512,15 @@ func (m *Manager) resultLoop() error {
 			}
 
 			if context == 0 {
-				log.Println(color.Ize(color.Red, "PRIME block mined"))
-				log.Println("PRIME:", header.Number, header.Hash())
+				log.Println(color.Ize(color.Red, "PRIME block :  "), header.Number, header.Hash())
 			}
 
 			if context == 1 {
-				log.Println(color.Ize(color.Yellow, "REGION block mined"))
-				log.Println("REGION:", header.Number, header.Hash())
+				log.Println(color.Ize(color.Yellow, "REGION block:  "), header.Number, header.Hash())
 			}
 
 			if context == 2 {
-				log.Println(color.Ize(color.Blue, "Zone block mined"))
-				log.Println("ZONE:", header.Number, header.Hash())
+				log.Println(color.Ize(color.Blue, "Zone block  :  "), header.Number, header.Hash())
 			}
 
 			// Check to see that all nodes are running before sending blocks to them.
@@ -624,7 +636,6 @@ func (m *Manager) subscribeHeaderRoots(client *ethclient.Client, index int) {
 			m.header.TxHash[index] = headerRoots.TxsRoot
 			m.header.ReceiptHash[index] = headerRoots.ReceiptsRoot
 
-			fmt.Println("Received a header root update from index: ", index, m.header.Root[0], headerRoots.StateRoot)
 			// send the updated header roots to mine
 			m.updatedCh <- m.header
 			m.lock.Unlock()
