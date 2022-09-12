@@ -58,6 +58,7 @@ func init() {
 
 type Manager struct {
 	engine *blake3.Blake3
+	config util.Config
 
 	header *types.Header
 
@@ -221,6 +222,7 @@ func main() {
 		doneCh:              make(chan bool),
 		location:            config.Location,
 		previousNumber:      make([]*big.Int, 3),
+		config:              config,
 	}
 
 	m.previousNumber = []*big.Int{big.NewInt(0), big.NewInt(0), big.NewInt(0)}
@@ -570,11 +572,35 @@ func (m *Manager) allChainsOnline() bool {
 	if !checkConnection(m.orderedBlockClients.primeClient) {
 		return false
 	}
-	if !checkConnection(m.orderedBlockClients.regionClients[m.location[0]-1]) {
-		return false
+	for i, blockClient := range m.orderedBlockClients.regionClients {
+		if !checkConnection(blockClient) {
+			regionURL := m.config.RegionURLs[i]
+			if regionURL != "" {
+				regionClient, err := ethclient.Dial(regionURL)
+				if err != nil {
+					log.Println("Unable to connect to node:", "Region", i+1, regionURL)
+					return false
+				} else {
+					m.orderedBlockClients.regionClients[i] = regionClient
+				}
+			}
+		}
 	}
-	if !checkConnection(m.orderedBlockClients.zoneClients[m.location[0]-1][m.location[1]-1]) {
-		return false
+	for i := range m.orderedBlockClients.zoneClients {
+		for j, blockClient := range m.orderedBlockClients.zoneClients[i] {
+			if !checkConnection(blockClient) {
+				zoneURL := m.config.ZoneURLs[i][j]
+				if zoneURL != "" {
+					zoneClient, err := ethclient.Dial(zoneURL)
+					if err != nil {
+						log.Println("Unable to connect to node:", "Region", i+1, zoneURL)
+						return false
+					} else {
+						m.orderedBlockClients.zoneClients[i][j] = zoneClient
+					}
+				}
+			}
+		}
 	}
 	return true
 }
