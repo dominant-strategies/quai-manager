@@ -370,7 +370,6 @@ func (m *Manager) fetchPendingHeader(client *ethclient.Client) {
 
 	m.lock.Lock()
 	header, err = client.GetPendingHeader(context.Background())
-	log.Println("Fetched pending header: ", header)
 
 	// retrying for 5 times if pending block not found
 	if err != nil || header == nil {
@@ -573,33 +572,27 @@ func (m *Manager) allChainsOnline() bool {
 	if !checkConnection(m.orderedBlockClients.primeClient) {
 		return false
 	}
-	for i, blockClient := range m.orderedBlockClients.regionClients {
-		if !checkConnection(blockClient) {
-			regionURL := m.config.RegionURLs[i]
-			if regionURL != "" {
-				regionClient, err := ethclient.Dial(regionURL)
-				if err != nil {
-					log.Println("Unable to connect to node:", "Region", i+1, regionURL)
-					return false
-				} else {
-					m.orderedBlockClients.regionClients[i] = regionClient
-				}
+	if !checkConnection(m.orderedBlockClients.regionClients[m.location[0]-1]) {
+		regionURL := m.config.RegionURLs[m.location[0]-1]
+		if regionURL != "" {
+			regionClient, err := ethclient.Dial(regionURL)
+			if err != nil {
+				log.Println("Unable to connect to node:", "Region ", m.location, regionURL)
+				return false
+			} else {
+				m.orderedBlockClients.regionClients[m.location[0]-1] = regionClient
 			}
 		}
 	}
-	for i := range m.orderedBlockClients.zoneClients {
-		for j, blockClient := range m.orderedBlockClients.zoneClients[i] {
-			if !checkConnection(blockClient) {
-				zoneURL := m.config.ZoneURLs[i][j]
-				if zoneURL != "" {
-					zoneClient, err := ethclient.Dial(zoneURL)
-					if err != nil {
-						log.Println("Unable to connect to node:", "Region", i+1, zoneURL)
-						return false
-					} else {
-						m.orderedBlockClients.zoneClients[i][j] = zoneClient
-					}
-				}
+	if !checkConnection(m.orderedBlockClients.zoneClients[m.location[0]-1][m.location[1]-1]) {
+		zoneURL := m.config.ZoneURLs[m.location[0]-1][m.location[1]-1]
+		if zoneURL != "" {
+			zoneClient, err := ethclient.Dial(zoneURL)
+			if err != nil {
+				log.Println("Unable to connect to node:", "Region ", m.location[0]-1, "Zone ", m.location[1]-1, zoneURL)
+				return false
+			} else {
+				m.orderedBlockClients.zoneClients[m.location[0]-1][m.location[1]-1] = zoneClient
 			}
 		}
 	}
@@ -622,7 +615,7 @@ func (m *Manager) SendMinedHeader(mined int, header *types.Header, wg *sync.Wait
 
 // Checks if a connection is still there on orderedBlockClient.chainAvailable
 func checkConnection(client *ethclient.Client) bool {
-	_, err := client.HeaderByNumber(context.Background(), big.NewInt(-1))
+	_, err := client.HeaderByNumber(context.Background(), nil)
 	if err != nil {
 		log.Println("Error: connection lost")
 		log.Println(err)
