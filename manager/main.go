@@ -331,6 +331,7 @@ func (m *Manager) subscribePendingHeader(client *ethclient.Client, sliceIndex in
 
 	// wait until sync is nil to continue
 	for checkSync != nil && err == nil {
+		time.Sleep(time.Duration(1) * time.Second)
 		checkSync, err = client.SyncProgress(context.Background())
 		if err != nil {
 			log.Println("error during syncing: ", err, checkSync)
