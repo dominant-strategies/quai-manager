@@ -20,7 +20,7 @@ import (
 	"github.com/dominant-strategies/go-quai/common"
 	"github.com/dominant-strategies/go-quai/consensus/blake3pow"
 	"github.com/dominant-strategies/go-quai/core/types"
-	"github.com/dominant-strategies/go-quai/ethclient"
+	"github.com/dominant-strategies/go-quai/quaiclient/ethclient"
 	"github.com/spruce-solutions/quai-manager/manager/util"
 )
 
@@ -289,50 +289,50 @@ func getNodeClients(config util.Config) orderedBlockClients {
 func (m *Manager) subscribePendingHeader(client *ethclient.Client, sliceIndex int) {
 	log.Println("Current location is ", m.location)
 	// check the status of the sync
-	checkSync, err := client.SyncProgress(context.Background())
+	// checkSync, err := client.SyncProgress(context.Background())
 
-	if err != nil {
-		switch sliceIndex {
-		case 0:
-			log.Println("Error occured while synching to Prime")
-		case 1:
-			log.Println("Error occured while synching to Region")
-		case 2:
-			log.Println("Error occured while synching to Zone")
-		}
-	}
+	// if err != nil {
+	// 	switch sliceIndex {
+	// 	case 0:
+	// 		log.Println("Error occured while synching to Prime")
+	// 	case 1:
+	// 		log.Println("Error occured while synching to Region")
+	// 	case 2:
+	// 		log.Println("Error occured while synching to Zone")
+	// 	}
+	// }
 
-	// wait until sync is nil to continue
-	for checkSync != nil && err == nil {
-		time.Sleep(time.Duration(1) * time.Second)
-		checkSync, err = client.SyncProgress(context.Background())
-		if err != nil {
-			log.Println("error during syncing: ", err, checkSync)
-		}
-	}
+	// // wait until sync is nil to continue
+	// for checkSync != nil && err == nil {
+	// 	time.Sleep(time.Duration(1) * time.Second)
+	// 	checkSync, err = client.SyncProgress(context.Background())
+	// 	if err != nil {
+	// 		log.Println("error during syncing: ", err, checkSync)
+	// 	}
+	// }
 
 	// done channel in case best Location updates
 	// subscribe to the pending block only if not synching
-	if checkSync == nil && err == nil {
-		// Wait for chain events and push them to clients
-		header := make(chan *types.Header)
-		sub, err := client.SubscribePendingHeader(context.Background(), header)
-		if err != nil {
-			log.Fatal("Failed to subscribe to pending block events", err)
-		}
-		defer sub.Unsubscribe()
+	// if checkSync == nil && err == nil {
+	// Wait for chain events and push them to clients
+	header := make(chan *types.Header)
+	sub, err := client.SubscribePendingHeader(context.Background(), header)
+	if err != nil {
+		log.Fatal("Failed to subscribe to pending block events", err)
+	}
+	defer sub.Unsubscribe()
 
-		// Wait for various events and passing to the appropriate background threads
-		for {
-			select {
-			case m.header = <-header:
-				m.updatedCh <- m.header
-				// New head arrived, send if for state update if there's none running
-			case <-m.doneCh: // location updated and this routine needs to be stopped to start a new one
-				break
-			}
+	// Wait for various events and passing to the appropriate background threads
+	for {
+		select {
+		case m.header = <-header:
+			m.updatedCh <- m.header
+			// New head arrived, send if for state update if there's none running
+		case <-m.doneCh: // location updated and this routine needs to be stopped to start a new one
+			return
 		}
 	}
+	// }
 }
 
 // PendingBlocks gets the latest block when we have received a new pending header. This will get the receipts,

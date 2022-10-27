@@ -4,7 +4,7 @@ go 1.16
 
 require (
 	github.com/TwiN/go-color v1.1.0
-	github.com/dominant-strategies/go-quai v0.0.0-20220926163208-ca33f4abb3a4
+	github.com/dominant-strategies/go-quai v0.0.0-20221024175557-2ecaff8e12d6
 	github.com/karalabe/usb v0.0.0-20211005121534-4c5740d64559 // indirect
 	github.com/mattn/go-colorable v0.1.8 // indirect
 	github.com/spf13/viper v1.9.0
