@@ -413,6 +413,10 @@ func (m *Manager) miningLoop() error {
 	for {
 		select {
 		case header := <-m.updatedCh:
+			// If the header has zero numbers
+			if header.Number(0) == common.Big0 || header.Number(1) == common.Big0 || header.Number(2) == common.Big0 {
+				continue
+			}
 			// Mine the header here
 			// Return the valid header with proper nonce and mix digest
 			// Interrupt previous sealing operation
@@ -646,12 +650,11 @@ func (m *Manager) GetDifficultyOrder(header *types.Header) (int, error) {
 	if header == nil {
 		return common.HierarchyDepth, errors.New("no header provided")
 	}
-	blockhash := m.engine.SealHash(header)
 
 	for i, difficulty := range header.DifficultyArray() {
 		if difficulty != nil && big.NewInt(0).Cmp(difficulty) < 0 {
 			target := new(big.Int).Div(big2e256, difficulty)
-			if new(big.Int).SetBytes(blockhash.Bytes()).Cmp(target) <= 0 {
+			if new(big.Int).SetBytes(header.Hash().Bytes()).Cmp(target) <= 0 {
 				return i, nil
 			}
 		}
