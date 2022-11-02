@@ -413,6 +413,10 @@ func (m *Manager) miningLoop() error {
 	for {
 		select {
 		case header := <-m.updatedCh:
+			// If the header has zero numbers
+			if header.Number(0) == common.Big0 || header.Number(1) == common.Big0 || header.Number(2) == common.Big0 {
+				continue
+			}
 			// Mine the header here
 			// Return the valid header with proper nonce and mix digest
 			// Interrupt previous sealing operation
