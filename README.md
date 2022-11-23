@@ -23,7 +23,7 @@ go build -o ./build/bin/manager manager/main.go
 
 ### Auto-miner mode
 
-With the introduction of the auto-miner enhancement, it is now possible to let the manager automatically find and set itself to the best location. In this mode, the manager will start at the best location. There is an also an option to "optimize," and if set true it will also check periodically whether it is still in the best location and, if not, it will update to the best location. The best location is the chain with the lowest observed difficulty, meaning in auto-miner mode the manager automatically selects the chain likely to bring the best rewards to a miner while also automatically distributing hashrate across the network evenly.
+With the introduction of the auto-miner enhancement, it is now possible to let the manager automatically find and set itself to the best location at startup. The "optimize" option will periodically check and update to the best location. The best location is the chain with the lowest observed difficulty, meaning in auto-miner mode the manager automatically selects the highest rewards chain for miners, while automatically distributing hashrate across the network evenly.
 
 ## Configuring the Manager
 
