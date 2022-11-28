@@ -111,8 +111,8 @@ func TestOpETX(t *testing.T) {
 			}
 			i++
 		}
-
-		inner_tx := types.InternalTx{ChainID: PARAMS.ChainID, Nonce: nonce, GasTipCap: MINERTIP, GasFeeCap: BASEFEE, Gas: GAS, To: nil, Value: VALUE, Data: contract}
+		accessList := types.AccessList{}
+		inner_tx := types.InternalTx{ChainID: PARAMS.ChainID, Nonce: nonce, GasTipCap: MINERTIP, GasFeeCap: BASEFEE, Gas: GAS, To: nil, Value: VALUE, Data: contract, AccessList: accessList}
 		tx, err := ks.SignTx(from, types.NewTx(&inner_tx), PARAMS.ChainID)
 		if err != nil {
 			t.Error(err.Error())
