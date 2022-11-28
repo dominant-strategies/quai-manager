@@ -2,6 +2,8 @@ module github.com/spruce-solutions/quai-manager
 
 go 1.16
 
+replace github.com/dominant-strategies/go-quai => ../go-quai
+
 require (
 	github.com/TwiN/go-color v1.4.0
 	github.com/dominant-strategies/go-quai v0.0.0-20221121183755-054ed95d776e

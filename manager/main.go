@@ -208,8 +208,6 @@ func main() {
 		// subscribing to the zone pending header update.
 		m.subscribeSlicePendingHeader()
 
-		m.subscribeSliceHeaderRoots()
-
 		go m.resultLoop()
 
 		go m.miningLoop()
