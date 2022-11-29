@@ -111,8 +111,13 @@ func TestOpETX(t *testing.T) {
 			}
 			i++
 		}
+		fee := big.NewInt(0)
+		fee.Add(MINERTIP, BASEFEE)
+		fee.Mul(fee, big.NewInt(int64(GAS)))
+		total := big.NewInt(0)
+		total.Add(VALUE, fee)
 		accessList := types.AccessList{}
-		inner_tx := types.InternalTx{ChainID: PARAMS.ChainID, Nonce: nonce, GasTipCap: MINERTIP, GasFeeCap: BASEFEE, Gas: GAS, To: nil, Value: VALUE, Data: contract, AccessList: accessList}
+		inner_tx := types.InternalTx{ChainID: PARAMS.ChainID, Nonce: nonce, GasTipCap: MINERTIP, GasFeeCap: BASEFEE, Gas: GAS, To: nil, Value: total, Data: contract, AccessList: accessList}
 		tx, err := ks.SignTx(from, types.NewTx(&inner_tx), PARAMS.ChainID)
 		if err != nil {
 			t.Error(err.Error())
