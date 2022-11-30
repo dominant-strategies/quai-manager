@@ -30,6 +30,49 @@ var numChains = 13
 var chainList = []string{"prime", "cyprus", "cyprus1", "cyprus2", "cyprus3", "paxos", "paxos1", "paxos2", "paxos3", "hydra", "hydra1", "hydra2", "hydra3"}
 var from_zone = 0
 
+func TestOneETX(t *testing.T) {
+	privKey, _ := crypto.HexToECDSA("156e5e32e728f2d68639effbb2cd756ac9f87f9c76b44404ac52d9f916a82d8d")
+	fromAddr := crypto.PubkeyToAddress(privKey.PublicKey)
+	signer := types.LatestSigner(PARAMS)
+	client, err := ethclient.Dial("ws://127.0.0.1:8611")
+	if err != nil {
+		t.Error("Unable to connect to zone")
+		t.Fail()
+	}
+
+	toAddr := common.HexToAddress("0x246ae82bb49e9dda583cb5fd304fd31cc1b69791") // Change this
+
+	nonce, err := client.NonceAt(context.Background(), fromAddr, nil)
+	if err != nil {
+		t.Error(err.Error())
+		t.Fail()
+	}
+
+	data := make([]byte, 0, 0)
+	etxGasLimit := uint256.NewInt(GAS)
+	gasTipCap := uint256.NewInt(MINERTIP.Uint64())
+	gasFeeCap := uint256.NewInt(BASEFEE.Uint64())
+	temp := etxGasLimit.Bytes32()
+	data = append(data, temp[:]...)
+	temp = gasTipCap.Bytes32()
+	data = append(data, temp[:]...)
+	temp = gasFeeCap.Bytes32()
+	data = append(data, temp[:]...)
+
+	inner_tx := types.InternalTx{ChainID: PARAMS.ChainID, Nonce: nonce, GasTipCap: MINERTIP, GasFeeCap: BASEFEE, Gas: GAS, To: &toAddr, Value: VALUE, Data: data}
+	tx, err := types.SignTx(types.NewTx(&inner_tx), signer, privKey)
+	if err != nil {
+		t.Error(err.Error())
+		t.Fail()
+	}
+
+	err = client.SendTransaction(context.Background(), tx)
+	if err != nil {
+		t.Error(err.Error())
+		t.Fail()
+	}
+}
+
 func TestOpETX(t *testing.T) {
 	config, err := util.LoadConfig(".")
 	if err != nil {
