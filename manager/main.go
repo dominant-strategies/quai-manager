@@ -16,7 +16,6 @@ import (
 	"sync"
 	"time"
 
-	"github.com/TwiN/go-color"
 	"github.com/dominant-strategies/go-quai/common"
 	"github.com/dominant-strategies/go-quai/consensus/blake3pow"
 	"github.com/dominant-strategies/go-quai/core/types"
@@ -173,7 +172,7 @@ func main() {
 
 		config.Location = []byte{RegionLocArr[0], ZoneLocArr[0]}
 		config.Mine = mine == 1
-		log.Println(color.Ize(color.Red, "Manual mode started"))
+		log.Println("Manual mode started")
 	}
 
 	header := types.EmptyHeader()
@@ -435,9 +434,9 @@ func (m *Manager) miningLoop() error {
 			if headerNull == nil {
 				if header.Number(0).Cmp(m.previousNumber[0]) != 0 || header.Number(1).Cmp(m.previousNumber[1]) != 0 || header.Number(2).Cmp(m.previousNumber[2]) != 0 {
 					if header.Number(0).Cmp(m.previousNumber[0]) != 0 {
-						log.Println("Mining Block:  ", fmt.Sprintf("[%s %s %s]", color.Ize(color.Red, fmt.Sprint(header.Number(0))), header.Number(1).String(), header.Number(2).String()), "location", m.location, "difficulty", header.DifficultyArray())
+						log.Println("Mining Block:  ", fmt.Sprintf("[%s %s %s]", fmt.Sprint(header.Number(0), header.Number(1).String(), header.Number(2).String()), "location", m.location, "difficulty", header.DifficultyArray()))
 					} else if header.Number(1).Cmp(m.previousNumber[1]) != 0 {
-						log.Println("Mining Block:  ", fmt.Sprintf("[%s %s %s]", header.Number(0).String(), color.Ize(color.Yellow, fmt.Sprint(header.Number(1))), header.Number(2).String()), "location", m.location, "difficulty", header.DifficultyArray())
+						log.Println("Mining Block:  ", fmt.Sprintf("[%s %s %s]", header.Number(0).String(), fmt.Sprint(header.Number(1)), header.Number(2).String()), "location", m.location, "difficulty", header.DifficultyArray())
 					} else {
 						log.Println("Mining Block:  ", header.NumberArray(), "location", m.location, "difficulty", header.DifficultyArray())
 					}
@@ -491,15 +490,15 @@ func (m *Manager) resultLoop() error {
 			}
 
 			if context == 0 {
-				log.Println(color.Ize(color.Red, "PRIME block :  "), header.NumberArray(), header.Hash())
+				log.Println("PRIME block :  ", header.NumberArray(), header.Hash())
 			}
 
 			if context == 1 {
-				log.Println(color.Ize(color.Yellow, "REGION block:  "), header.NumberArray(), header.Hash())
+				log.Println("REGION block:  ", header.NumberArray(), header.Hash())
 			}
 
 			if context == 2 {
-				log.Println(color.Ize(color.Blue, "Zone block  :  "), header.NumberArray(), header.Hash())
+				log.Println("Zone block  :  ", header.NumberArray(), header.Hash())
 			}
 
 			// Check to see that all nodes are running before sending blocks to them.
@@ -650,7 +649,7 @@ func (m *Manager) GetDifficultyOrder(header *types.Header) (int, error) {
 	if header == nil {
 		return common.HierarchyDepth, errors.New("no header provided")
 	}
-	blockhash := m.engine.SealHash(header)
+	blockhash := header.Hash()
 
 	for i, difficulty := range header.DifficultyArray() {
 		if difficulty != nil && big.NewInt(0).Cmp(difficulty) < 0 {

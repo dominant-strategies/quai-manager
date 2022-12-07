@@ -21,10 +21,10 @@ import (
 	"github.com/spruce-solutions/quai-manager/manager/util"
 )
 
-var BASEFEE = common.Big1
+var BASEFEE = big.NewInt(params.GWei)
 var MINERTIP = common.Big1
-var GAS = uint64(110000)
-var VALUE = big.NewInt(params.Ether)
+var GAS = uint64(100000)
+var VALUE = big.NewInt(params.Ether / 10)
 var PARAMS = params.RopstenChainConfig
 var numChains = 13
 var chainList = []string{"prime", "cyprus", "cyprus1", "cyprus2", "cyprus3", "paxos", "paxos1", "paxos2", "paxos3", "hydra", "hydra1", "hydra2", "hydra3"}
@@ -48,18 +48,7 @@ func TestOneETX(t *testing.T) {
 		t.Fail()
 	}
 
-	data := make([]byte, 0, 0)
-	etxGasLimit := uint256.NewInt(GAS)
-	gasTipCap := uint256.NewInt(MINERTIP.Uint64())
-	gasFeeCap := uint256.NewInt(BASEFEE.Uint64())
-	temp := etxGasLimit.Bytes32()
-	data = append(data, temp[:]...)
-	temp = gasTipCap.Bytes32()
-	data = append(data, temp[:]...)
-	temp = gasFeeCap.Bytes32()
-	data = append(data, temp[:]...)
-
-	inner_tx := types.InternalTx{ChainID: PARAMS.ChainID, Nonce: nonce, GasTipCap: MINERTIP, GasFeeCap: BASEFEE, Gas: GAS, To: &toAddr, Value: VALUE, Data: data}
+	inner_tx := types.InternalToExternalTx{ChainID: PARAMS.ChainID, Nonce: nonce, GasTipCap: MINERTIP, GasFeeCap: BASEFEE, Gas: GAS, To: &toAddr, Value: VALUE, ETXGasLimit: 21000, ETXGasPrice: BASEFEE, ETXGasTip: MINERTIP}
 	tx, err := types.SignTx(types.NewTx(&inner_tx), signer, privKey)
 	if err != nil {
 		t.Error(err.Error())
