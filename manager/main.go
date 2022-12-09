@@ -648,7 +648,7 @@ func (m *Manager) GetDifficultyOrder(header *types.Header) (int, error) {
 	if header == nil {
 		return common.HierarchyDepth, errors.New("no header provided")
 	}
-	blockhash := m.engine.SealHash(header)
+	blockhash := header.Hash()
 
 	for i, difficulty := range header.DifficultyArray() {
 		if difficulty != nil && big.NewInt(0).Cmp(difficulty) < 0 {

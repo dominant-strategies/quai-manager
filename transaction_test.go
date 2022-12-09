@@ -21,10 +21,10 @@ import (
 	"github.com/spruce-solutions/quai-manager/manager/util"
 )
 
-var BASEFEE = common.Big1
-var MINERTIP = common.Big1
+var BASEFEE = big.NewInt(2 * params.GWei)
+var MINERTIP = big.NewInt(2 * params.GWei)
 var GAS = uint64(110000)
-var VALUE = big.NewInt(params.Ether)
+var VALUE = big.NewInt(1111111111111111)
 var PARAMS = params.RopstenChainConfig
 var numChains = 13
 var chainList = []string{"prime", "cyprus", "cyprus1", "cyprus2", "cyprus3", "paxos", "paxos1", "paxos2", "paxos3", "hydra", "hydra1", "hydra2", "hydra3"}
@@ -65,7 +65,7 @@ func TestOpETX(t *testing.T) {
 		addAccToClient(&allClients, acc, i)
 	}
 
-	for i := 0; i < 3; i++ {
+	for i := 0; i < 1; i++ {
 		if !allClients.zonesAvailable[from_zone][i] {
 			continue
 		}
@@ -73,7 +73,9 @@ func TestOpETX(t *testing.T) {
 		from := allClients.zoneAccounts[from_zone][i]
 		common.NodeLocation = *from.Address.Location() // Assuming we are in the same location as the provided key
 
-		to, err := uint256.FromHex(allClients.zoneAccounts[from_zone+1][i].Address.Hex())
+		toAddr := allClients.zoneAccounts[from_zone+1][i].Address
+		toAddr[len(toAddr)-1] += 1 // Tweak the recipient
+		to, err := uint256.FromHex(toAddr.Hex())
 		if err != nil {
 			t.Error(err.Error())
 			t.Fail()
@@ -112,7 +114,8 @@ func TestOpETX(t *testing.T) {
 			i++
 		}
 		accessList := types.AccessList{}
-		inner_tx := types.InternalTx{ChainID: PARAMS.ChainID, Nonce: nonce, GasTipCap: MINERTIP, GasFeeCap: BASEFEE, Gas: GAS, To: nil, Value: VALUE, Data: contract, AccessList: accessList}
+		tmpVal := big.NewInt(0).Add(VALUE, big.NewInt(1e17))
+		inner_tx := types.InternalTx{ChainID: PARAMS.ChainID, Nonce: nonce, GasTipCap: MINERTIP, GasFeeCap: BASEFEE, Gas: GAS, To: nil, Value: tmpVal, Data: contract, AccessList: accessList}
 		tx, err := ks.SignTx(from, types.NewTx(&inner_tx), PARAMS.ChainID)
 		if err != nil {
 			t.Error(err.Error())
