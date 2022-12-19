@@ -3,6 +3,7 @@ package util
 import (
 	"fmt"
 
+	"github.com/dominant-strategies/go-quai/common"
 	"github.com/spf13/viper"
 )
 
@@ -10,9 +11,8 @@ type Config struct {
 	PrimeURL      string
 	RegionURLs    []string
 	ZoneURLs      [][]string
-	Location      []byte
+	Location      common.Location
 	Auto          bool
-	Mine          bool
 	Optimize      bool
 	OptimizeTimer int
 }
