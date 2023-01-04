@@ -60,7 +60,7 @@ type Manager struct {
 
 	header *types.Header
 
-	sliceClients clients
+	sliceClients SliceClients
 	lock         sync.Mutex
 	location     []byte
 
@@ -120,11 +120,13 @@ func main() {
 
 	log.Println("Starting manager in location ", config.Location)
 
-	m.fetchPendingHeader(m.orderedBlockClients.zoneClients[m.location[0]][m.location[1]])
-	m.subscribePendingHeader()
+	m.fetchPendingHeader()
+
+	go m.subscribePendingHeader()
 	go m.resultLoop()
 	go m.miningLoop()
 	go m.SubmitHashRate()
+	<-exit
 }
 
 // getNodeClients takes in a config and retrieves the Prime, Region, and Zone client
@@ -201,10 +203,7 @@ func (m *Manager) fetchPendingHeader() {
 	var err error
 
 	m.lock.Lock()
-	for header == nil {
-		header, err = m.sliceClients.zone.GetPendingHeader(context.Background())
-		log.Println("error fetching pending header: ", err)
-	}
+	header, err = m.sliceClients.zone.GetPendingHeader(context.Background())
 
 	// retrying for 5 times if pending block not found
 	if err != nil || header == nil {
@@ -218,7 +217,7 @@ func (m *Manager) fetchPendingHeader() {
 				attempts = 0
 			}
 
-			header, err = client.GetPendingHeader(context.Background())
+			header, err = m.sliceClients.zone.GetPendingHeader(context.Background())
 			if err == nil && header != nil {
 				break
 			}
@@ -408,32 +407,14 @@ func (m *Manager) resultLoop() error {
 // allChainsOnline checks if every single chain is online before sending the mined block to make sure that we don't have
 // external blocks not found error
 func (m *Manager) allChainsOnline() bool {
-	if !checkConnection(m.orderedBlockClients.primeClient) {
+	if !checkConnection(m.sliceClients.prime) {
 		return false
 	}
-	if !checkConnection(m.orderedBlockClients.regionClients[m.location[0]]) {
-		regionURL := m.config.RegionURLs[m.location[0]]
-		if regionURL != "" {
-			regionClient, err := ethclient.Dial(regionURL)
-			if err != nil {
-				log.Println("Unable to connect to node:", "Region ", m.location, regionURL)
-				return false
-			} else {
-				m.orderedBlockClients.regionClients[m.location[0]] = regionClient
-			}
-		}
+	if !checkConnection(m.sliceClients.region) {
+		return false
 	}
-	if !checkConnection(m.orderedBlockClients.zoneClients[m.location[0]][m.location[1]]) {
-		zoneURL := m.config.ZoneURLs[m.location[0]][m.location[1]]
-		if zoneURL != "" {
-			zoneClient, err := ethclient.Dial(zoneURL)
-			if err != nil {
-				log.Println("Unable to connect to node:", "Region ", m.location[0], "Zone ", m.location[1], zoneURL)
-				return false
-			} else {
-				m.orderedBlockClients.zoneClients[m.location[0]][m.location[1]] = zoneClient
-			}
-		}
+	if !checkConnection(m.sliceClients.zone) {
+		return false
 	}
 	return true
 }
@@ -441,13 +422,13 @@ func (m *Manager) allChainsOnline() bool {
 // SendMinedHeader sends the mined block to its mining client with the transactions, uncles, and receipts.
 func (m *Manager) SendMinedHeader(mined int, header *types.Header, wg *sync.WaitGroup) {
 	if mined == 0 {
-		m.orderedBlockClients.primeClient.ReceiveMinedHeader(context.Background(), header)
+		m.sliceClients.prime.ReceiveMinedHeader(context.Background(), header)
 	}
 	if mined == 1 {
-		m.orderedBlockClients.regionClients[m.location[0]].ReceiveMinedHeader(context.Background(), header)
+		m.sliceClients.region.ReceiveMinedHeader(context.Background(), header)
 	}
 	if mined == 2 {
-		m.orderedBlockClients.zoneClients[m.location[0]][m.location[1]].ReceiveMinedHeader(context.Background(), header)
+		m.sliceClients.zone.ReceiveMinedHeader(context.Background(), header)
 	}
 	defer wg.Done()
 }
@@ -461,43 +442,6 @@ func checkConnection(client *ethclient.Client) bool {
 		return false
 	} else {
 		return true
-	}
-}
-
-func (m *Manager) subscribeSliceHeaderRoots() {
-	go m.subscribeHeaderRoots(m.orderedBlockClients.primeClient, 0)
-	go m.subscribeHeaderRoots(m.orderedBlockClients.regionClients[m.location[0]], 1)
-	go m.subscribeHeaderRoots(m.orderedBlockClients.zoneClients[m.location[0]][m.location[1]], 2)
-}
-
-func (m *Manager) subscribePendingHeader() {
-	go m.subscribePendingHeader(m.sliceClients.zone)
-}
-
-func (m *Manager) subscribeHeaderRoots(client *ethclient.Client, index int) {
-	headerRoots := make(chan types.HeaderRoots, 1)
-	// subscribe to the header roots update
-	sub, err := client.SubscribeHeaderRoots(context.Background(), headerRoots)
-	if err != nil {
-		log.Fatal("Failed to subscribe to Header roots event", err)
-	}
-	defer sub.Unsubscribe()
-
-	// Wait for various events and assining to the appropriate background threads
-	for {
-		select {
-		case headerRoots := <-headerRoots:
-			m.lock.Lock()
-			m.header.SetRoot(headerRoots.StateRoot, index)
-			m.header.SetTxHash(headerRoots.TxsRoot)
-			m.header.SetReceiptHash(headerRoots.ReceiptsRoot)
-
-			// send the updated header roots to mine
-			m.updatedCh <- m.header
-			m.lock.Unlock()
-		case <-m.doneCh: // location updated and this routine needs to be stopped to start a new one
-			break
-		}
 	}
 }
 
