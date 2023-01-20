@@ -275,7 +275,7 @@ func (m *Manager) miningLoop() error {
 		select {
 		case header := <-m.updatedCh:
 			// If the header has zero numbers
-			if header.Number(0) == common.Big0 || header.Number(1) == common.Big0 || header.Number(2) == common.Big0 {
+			if header.Number(0).Cmp(common.Big0) == 0 || header.Number(1).Cmp(common.Big0) == 0 || header.Number(2).Cmp(common.Big0) == 0 {
 				continue
 			}
 			// Mine the header here
