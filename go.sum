@@ -312,6 +312,8 @@ github.com/dominant-strategies/go-quai v0.0.0-20221024175557-2ecaff8e12d6 h1:biX
 github.com/dominant-strategies/go-quai v0.0.0-20221024175557-2ecaff8e12d6/go.mod h1:Nc53KCtvsN2OC63EIiRgTeIcGxrCafwr6KdeO0PAAAk=
 github.com/dominant-strategies/go-quai v0.0.0-20221121183755-054ed95d776e h1:pI/KHl3h9mKFp2HZmKml0QZJmPhACMp8c9Uv1WXtVpg=
 github.com/dominant-strategies/go-quai v0.0.0-20221121183755-054ed95d776e/go.mod h1:Nc53KCtvsN2OC63EIiRgTeIcGxrCafwr6KdeO0PAAAk=
+github.com/dominant-strategies/go-quai v0.0.0-20230123213301-d59c57058720 h1:n170DO2+Ac7ozQKz3NVOE97nTuL4eojUV1aXSVTlxgE=
+github.com/dominant-strategies/go-quai v0.0.0-20230123213301-d59c57058720/go.mod h1:Nc53KCtvsN2OC63EIiRgTeIcGxrCafwr6KdeO0PAAAk=
 github.com/dominant-strategies/quai-accounts v0.0.0-20221018202534-b7e8dff9f664 h1:olkQsGVSBBrKCxgHC5C4+4yTuni2HFkeq+EfQbynAoo=
 github.com/dominant-strategies/quai-accounts v0.0.0-20221018202534-b7e8dff9f664/go.mod h1:muyQZX3IEnbBSZGGmJE0E9iSjy2lF1LE3aejj1n/42s=
 github.com/dominant-strategies/quai-faucet v0.0.0-20221017212838-9622f20ff706 h1:JOK0qOmf8JOlrgWZI/kAmw6cri+6Z8ilbMCq7C5wG9M=
