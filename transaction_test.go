@@ -17,15 +17,15 @@ import (
 	"github.com/dominant-strategies/go-quai/quaiclient/ethclient"
 	accounts "github.com/dominant-strategies/quai-accounts"
 	"github.com/dominant-strategies/quai-accounts/keystore"
+	"github.com/dominant-strategies/quai-manager/manager/util"
 	"github.com/holiman/uint256"
-	"github.com/spruce-solutions/quai-manager/manager/util"
 )
 
 var BASEFEE = big.NewInt(2 * params.GWei)
 var MINERTIP = big.NewInt(2 * params.GWei)
 var GAS = uint64(110000)
 var VALUE = big.NewInt(1111111111111111)
-var PARAMS = params.RopstenChainConfig
+var PARAMS = params.TestChainConfig
 var numChains = 13
 var chainList = []string{"prime", "cyprus", "cyprus1", "cyprus2", "cyprus3", "paxos", "paxos1", "paxos2", "paxos3", "hydra", "hydra1", "hydra2", "hydra3"}
 var from_zone = 0

@@ -21,7 +21,7 @@ import (
 	"github.com/dominant-strategies/go-quai/consensus/blake3pow"
 	"github.com/dominant-strategies/go-quai/core/types"
 	"github.com/dominant-strategies/go-quai/quaiclient/ethclient"
-	"github.com/spruce-solutions/quai-manager/manager/util"
+	"github.com/dominant-strategies/quai-manager/manager/util"
 )
 
 const (

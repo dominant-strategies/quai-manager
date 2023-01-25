@@ -1,4 +1,4 @@
-module github.com/spruce-solutions/quai-manager
+module github.com/dominant-strategies/quai-manager
 
 go 1.19
 
