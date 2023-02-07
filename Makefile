@@ -32,7 +32,7 @@ run-mine-background:
 ifeq (,$(wildcard logs))
 	mkdir logs
 endif
-	@nohup ./build/bin/quai-manager $(region) $(zone) 1 >> logs/quai-manager.log 2>&1 &
+	@nohup ./build/bin/quai-manager $(region) $(zone) 1 >> logs/quai-manager-$(region)-$(zone).log 2>&1 &
 
 stop:
 ifeq ($(shell uname -s),Darwin)
